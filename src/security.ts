@@ -63,8 +63,27 @@ export function assertWritable(root: string, target: string, extraBlocked: strin
   }
 }
 
-/** Glob patterns must be relative and must not climb out of the workspace. */
+export const MAX_GLOB_LENGTH = 512;
+export const MAX_GLOB_NESTING = 8;
+
+/**
+ * Glob patterns must be relative, must not climb out of the workspace, and must be
+ * small and shallow. The nesting cap mitigates CVE-2026-93687 / GHSA-vfj7-8cjw-p6xm
+ * (braces <= 3.0.3 stack exhaustion via deeply nested brace patterns; no patched release yet).
+ */
 export function assertSafeGlob(pattern: string) {
+  if (pattern.length > MAX_GLOB_LENGTH) {
+    throw new AccessError(`Glob pattern is too long (max ${MAX_GLOB_LENGTH} characters).`);
+  }
+  let depth = 0;
+  let max = 0;
+  for (const ch of pattern) {
+    if (ch === '{' || ch === '(' || ch === '[') max = Math.max(max, ++depth);
+    else if (ch === '}' || ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+  }
+  if (max > MAX_GLOB_NESTING) {
+    throw new AccessError(`Glob pattern is nested too deeply (max ${MAX_GLOB_NESTING} levels).`);
+  }
   if (path.isAbsolute(pattern) || /^[A-Za-z]:/.test(pattern) || pattern.startsWith('\\\\')) {
     throw new AccessError('Glob pattern must be relative to the workspace.');
   }

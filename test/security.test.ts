@@ -57,6 +57,14 @@ describe('path containment', () => {
     assert.throws(() => assertSafeGlob('/etc/**'), /relative/);
     assert.throws(() => assertSafeGlob('C:/**'), /relative/);
     assert.doesNotThrow(() => assertSafeGlob('src/**/*.ts'));
+    assert.doesNotThrow(() => assertSafeGlob('src/**/*.{ts,tsx,js}'));
+  });
+
+  it('rejects oversized or deeply nested globs (braces CVE-2026-93687 mitigation)', () => {
+    assert.throws(() => assertSafeGlob('a'.repeat(513)), /too long/);
+    assert.throws(() => assertSafeGlob('{a,'.repeat(9) + 'b' + '}'.repeat(9)), /nested too deeply/);
+    assert.throws(() => assertSafeGlob('@('.repeat(9) + 'x' + ')'.repeat(9)), /nested too deeply/);
+    assert.doesNotThrow(() => assertSafeGlob('{a,'.repeat(8) + 'b' + '}'.repeat(8)));
   });
 });
 
