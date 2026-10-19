@@ -8,7 +8,8 @@ survives server restarts (SQLite state via the built-in `node:sqlite`).
 
 ```powershell
 npm install
-Copy-Item .env.example .env   # then set MCP_API_KEY, WORKSPACES, ALLOWED_ROOTS
+Copy-Item .env.example .env   # then set WORKSPACES, ALLOWED_ROOTS
+npm run new-key               # generates MCP_API_KEY in .env
 npm run dev                   # http://localhost:8790/mcp
 npm test                      # unit + end-to-end tests
 ```
@@ -58,6 +59,40 @@ All except `/health` require the API key (`api-key` header, `Authorization: Bear
 | GET | `/repository-summary?workspace=<alias>` | Source file count |
 | GET | `/audit?limit=50` | Recent tool calls |
 
+## API key (`MCP_API_KEY`)
+
+Every request except `GET /health` must carry the key; without it the server returns `401`.
+The server refuses to start when `MCP_API_KEY` is empty (unless `MCP_ALLOW_ANONYMOUS=true`).
+
+1. **Generate** (writes/rotates the key in `.env`, prints it once):
+   `npm run new-key` - or only print one: `npm run new-key -- --print`
+2. **Restart** the server (`npm run dev`); `.env` is read at startup.
+3. **Send it** in one of these ways (checked in this order):
+
+   | Where | Example |
+   |---|---|
+   | `api-key` header (recommended) | `api-key: <key>` |
+   | Bearer token | `Authorization: Bearer <key>` |
+   | Query string (avoid: ends up in logs) | `https://<host>/mcp?api_key=<key>` |
+
+4. **Configure the clients**
+   - *Copilot Studio*: MCP wizard > Authentication **API key** > Type **Header** > name `api-key`
+     (or use `docs/copilot-studio-connector.yaml`, which already declares it). Paste the key when creating the connection.
+   - *M365 Copilot declarative agent*: API key auth registered in the Teams developer portal / Agents Toolkit;
+     the key is stored by Microsoft, not in the app package.
+   - *curl / scripts*: `curl -H "api-key: $env:MCP_API_KEY" http://localhost:8790/workspaces`
+
+**Rotate**: `npm run new-key`, restart, then update the connection in each client. Never commit `.env`
+(it is git-ignored) and never paste the key into chat prompts.
+
+## Dependencies
+
+Versions are pinned exactly in `package.json` (and `.npmrc` sets `save-exact=true`). Update deliberately:
+`npm install <pkg>@<version>`, then `npm run typecheck && npm test`. Check with `npm run audit`.
+
+Known advisory: `braces` <= 3.0.3 (via `fast-glob` -> `micromatch`), CVE-2026-93687 / GHSA-vfj7-8cjw-p6xm,
+has no patched release. `list_files` mitigates it by capping glob patterns at 512 characters and
+8 nesting levels; remove this note when a fixed `braces` ships.
 ## Safety
 
 - Paths are resolved inside the workspace (also through symlinks/junctions); `..` and absolute paths are rejected.
