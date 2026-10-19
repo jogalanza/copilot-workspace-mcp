@@ -1,0 +1,37 @@
+# Power Platform custom connector for Copilot Studio (Swagger 2.0).
+# 1. Replace `host` with your dev tunnel host (no https://).
+# 2. In Copilot Studio: Tools > your MCP connector > Inputs > + Add input > `conversation-id`
+#    and set it to the custom value System.Conversation.Id.
+# 3. After editing this file, remove and re-add the connector in each agent.
+# Header names intentionally have no "X-" prefix (X- headers were not forwarded by MCP connectors).
+swagger: '2.0'
+info:
+  title: M365 Code Analyzer MCP
+  description: Read, list and write files in named code workspaces. Each chat keeps its own workspace.
+  version: 1.3.0
+host: YOUR-TUNNEL-HOST.devtunnels.ms
+basePath: /
+schemes:
+  - https
+paths:
+  /mcp:
+    post:
+      summary: M365 Code Analyzer MCP server
+      x-ms-agentic-protocol: mcp-streamable-1.0
+      operationId: InvokeServer
+      parameters:
+        - name: conversation-id
+          in: header
+          type: string
+          required: false
+          description: Chat id used to remember the workspace per conversation (System.Conversation.Id).
+      responses:
+        '200':
+          description: Immediate Response
+securityDefinitions:
+  api_key:
+    type: apiKey
+    in: header
+    name: api-key
+security:
+  - api_key: []

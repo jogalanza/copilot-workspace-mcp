@@ -12,6 +12,12 @@ npm-debug.log*
 # Environment / secrets
 .env
 .env.*
+!.env.example
+
+# Local state (normally lives in %LOCALAPPDATA%, but never commit one)
+*.db
+*.db-wal
+*.db-shm
 
 # OS / editor
 .DS_Store
