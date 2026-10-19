@@ -1,105 +1,58 @@
-
-import express from 'express';
-import fg from 'fast-glob';
-import fs from 'node:fs/promises';
-import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { workspaceManager } from './workspaceManager.js';
+import { createApp } from './app.js';
+import { loadConfig } from './config.js';
+import { StateStore } from './db.js';
+import { createMcpServer } from './mcpServer.js';
+import { WorkspaceService } from './workspaceManager.js';
 
-workspaceManager.setWorkspace(process.env.WORKSPACE_ROOT || process.cwd());
+// All logging goes to stderr: stdout is reserved for the stdio MCP transport.
+const log = (...args: unknown[]) => console.error('[copilot-mcp]', ...args);
 
-// Factory: an McpServer instance can only be connected to one transport,
-// so the stateless HTTP endpoint creates a fresh server per request.
-function createServer(){
- const server = new McpServer({name:'m365-code-analyzer',version:'1.2.0'});
+const config = loadConfig();
 
- server.registerTool('switch_workspace',{
-  description:'Switch active workspace',
-  inputSchema:{path:z.string()}
- },async({path})=>{
-  workspaceManager.setWorkspace(path);
-  return {content:[{type:'text',text:`Workspace changed to ${path}`}]};
- });
-
- server.registerTool('current_workspace',{
-  description:'Show current workspace',
-  inputSchema:{}
- },async()=>({content:[{type:'text',text:workspaceManager.getWorkspace()}]}));
-
- server.registerTool('list_files',{
-  description:'List files',
-  inputSchema:{pattern:z.string().default('**/*')}
- },async({pattern})=>({content:[{type:'text',text:JSON.stringify(await fg(pattern,{cwd:workspaceManager.getWorkspace()}),null,2)}]}));
-
- server.registerTool('read_file',{
-  description:'Read file',
-  inputSchema:{filePath:z.string()}
- },async({filePath})=>({content:[{type:'text',text:await fs.readFile(workspaceManager.getWorkspace()+'/'+filePath,'utf8')}]}));
-
- server.registerTool('write_file',{
-  description:'Write file',
-  inputSchema:{filePath:z.string(),content:z.string()}
- },async({filePath,content})=>{
-  await fs.writeFile(workspaceManager.getWorkspace()+'/'+filePath,content);
-  return {content:[{type:'text',text:'updated'}]};
- });
-
- return server;
-}
-
-const app = express();
-app.use(express.json());
-
-// MCP Streamable HTTP endpoint (what M365 Copilot / Copilot Studio calls).
-app.post('/mcp', async (req,res)=>{
- const server = createServer();
- const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined }); // stateless
- res.on('close',()=>{ transport.close(); server.close(); });
- try {
-  await server.connect(transport);
-  await transport.handleRequest(req,res,req.body);
- } catch (err) {
-  console.error('MCP request failed:',err);
-  if(!res.headersSent){
-   res.status(500).json({jsonrpc:'2.0',error:{code:-32603,message:'Internal server error'},id:null});
-  }
- }
-});
-
-// Stateless mode: no SSE stream / session termination.
-const methodNotAllowed = (_req:express.Request,res:express.Response)=>
- res.status(405).json({jsonrpc:'2.0',error:{code:-32000,message:'Method not allowed.'},id:null});
-app.get('/mcp',methodNotAllowed);
-app.delete('/mcp',methodNotAllowed);
-
-app.get('/health',(_,res)=>res.json({status:'healthy',workspace:workspaceManager.getWorkspace()}));
-
-app.get('/workspace',(_,res)=>res.json({workspace:workspaceManager.getWorkspace()}));
-
-app.post('/workspace', (req,res)=>{
- const path=req.body.path;
- workspaceManager.setWorkspace(path);
- res.json({workspace:path});
-});
-
-app.get('/repository-summary',async(_,res)=>{
- const files=await fg(['**/*.ts','**/*.js','**/*.cs','**/*.java','**/*.py'],{cwd:workspaceManager.getWorkspace()});
- res.json({workspace:workspaceManager.getWorkspace(),fileCount:files.length});
-});
-
-const port=Number(process.env.PORT||8787);
-app.listen(port,(err?:Error)=>{
- if(err){
-  // Express 5 passes listen errors (e.g. EADDRINUSE) here.
-  console.error(`Failed to listen on ${port}: ${err.message}`);
+if (!config.apiKey && !config.allowAnonymous) {
+  log('MCP_API_KEY is not set. Set it (recommended) or MCP_ALLOW_ANONYMOUS=true for local-only testing.');
   process.exit(1);
- }
- // stderr, not stdout: stdout is reserved for the stdio MCP transport.
- console.error(`Listening on ${port} (MCP endpoint: http://localhost:${port}/mcp)`);
+}
+if (!config.apiKey) log('WARNING: running WITHOUT authentication (MCP_ALLOW_ANONYMOUS=true).');
+
+const store = new StateStore(config.stateDbPath);
+const workspaces = new WorkspaceService(store, config);
+const deps = { config, store, workspaces };
+
+for (const w of await workspaces.seed()) log('WARNING:', w);
+
+const AUDIT_RETENTION_DAYS = 90;
+const housekeeping = () => {
+  const bindings = store.purgeBindings(config.bindingTtlDays);
+  const audit = store.purgeAudit(AUDIT_RETENTION_DAYS);
+  if (bindings || audit) log(`Purged ${bindings} stale chat binding(s), ${audit} audit row(s).`);
+};
+housekeeping();
+setInterval(housekeeping, 24 * 60 * 60 * 1000).unref();
+
+log(`State DB: ${config.stateDbPath}`);
+log(`Workspaces: ${workspaces.availableText()} Default: ${workspaces.getDefault() ?? '(none)'}`);
+if (config.allowedRoots.length) log(`add_workspace allowed under: ${config.allowedRoots.join('; ')}`);
+
+const app = createApp(deps);
+const httpServer = app.listen(config.port, (err?: Error) => {
+  if (err) {
+    // Express 5 passes listen errors (e.g. EADDRINUSE) here.
+    log(`Failed to listen on ${config.port}: ${err.message}`);
+    process.exit(1);
+  }
+  log(`Listening on ${config.port} (MCP endpoint: http://localhost:${config.port}/mcp)`);
 });
 
-if(process.env.ENABLE_STDIO==='true'){
- await createServer().connect(new StdioServerTransport());
+if (config.enableStdio) {
+  await createMcpServer(deps, { client: 'stdio' }).connect(new StdioServerTransport());
 }
+
+const shutdown = () => {
+  httpServer.close();
+  store.close();
+  process.exit(0);
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
