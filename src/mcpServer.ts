@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AppConfig } from './config.js';
 import type { StateStore } from './db.js';
+import { activity } from './activity.js';
 import { assertUrlAllowed, type BrowserManager } from './browserManager.js';
 import { assertRef, assertRemote, git, gitPaths } from './gitTools.js';
 import type { ManagedProcess, ProcessManager } from './processManager.js';
@@ -13,7 +14,7 @@ import { AccessError, assertSafeGlob, assertWritable, resolveInside, resolveUser
 import type { RequestContext, ResolvedWorkspace, WorkspaceSelector, WorkspaceService } from './workspaceManager.js';
 
 export const SERVER_NAME = 'copilot-workspace-mcp';
-export const SERVER_VERSION = '1.3.0';
+export const SERVER_VERSION = '1.4.0';
 
 type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
 type ToolResult = { content: ToolContent[]; isError?: boolean };
@@ -84,9 +85,11 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
   ): Promise<ToolResult> {
     const audit: { alias?: string } = {};
     let key: string | undefined;
+    const started = Date.now();
     try {
       key = workspaces.conversationKey(ctx, sel);
       const out = await fn(audit);
+      activity.complete(tool, { ok: true, ms: Date.now() - started, workspace: audit.alias ?? sel.workspace ?? undefined });
       store.audit({ conversationKey: key, tool, alias: audit.alias ?? sel.workspace, relPath, ok: true });
       if (typeof out === 'string') return text(out);
       return {
@@ -97,6 +100,12 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
       };
     } catch (err) {
       const message = err instanceof AccessError ? err.message : `${tool} failed: ${(err as Error).message}`;
+      activity.complete(tool, {
+        ok: false,
+        ms: Date.now() - started,
+        workspace: audit.alias ?? sel.workspace ?? undefined,
+        error: message,
+      });
       try {
         store.audit({ conversationKey: key, tool, alias: audit.alias ?? sel.workspace, relPath, ok: false, error: message });
       } catch {

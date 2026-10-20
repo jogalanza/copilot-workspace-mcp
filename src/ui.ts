@@ -1,6 +1,7 @@
 // Local web UI for the standalone launcher: live colour-coded logs, status and controls.
 // Bound to loopback only and NOT part of the tunnelled port, so it is never reachable from the internet.
 import http from 'node:http';
+import { activity } from './activity.js';
 import type { LogBus } from './logBus.js';
 import { UI_HTML } from './uiPage.js';
 
@@ -61,9 +62,15 @@ export function startUi(hooks: UiHooks, preferredPort: number): Promise<{ port: 
       const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       send('snapshot', hooks.bus.snapshot());
       const unsub = hooks.bus.subscribe((e) => (e.type === 'log' ? send('log', e.entry) : send('clear', {})));
+      send('activity', activity.snapshot());
+      const unsubActivity = activity.subscribe((s) => send('activity', s));
+      send('stats', activity.statsSnapshot());
+      const unsubStats = activity.subscribeStats((s) => send('stats', s));
       const beat = setInterval(() => res.write(': ping\n\n'), 20_000);
       req.on('close', () => {
         unsub();
+        unsubActivity();
+        unsubStats();
         clearInterval(beat);
       });
     } else if (req.method === 'GET' && url.pathname === '/api/config') {

@@ -9,6 +9,7 @@ import readline from 'node:readline/promises';
 import { loadConfig } from './config.js';
 import { KNOWN_VARS, LAUNCHER_DEFAULTS } from './envVars.js';
 import { LogBus, type LogLevel } from './logBus.js';
+import { SERVER_VERSION } from './mcpServer.js';
 import { startServer } from './server.js';
 import { startUi, type ConfigChange, type UiState } from './ui.js';
 
@@ -316,6 +317,7 @@ async function main() {
       process.exit(1);
     }
     shuttingDown = true;
+    stopShell();
     log(`Shutting down (${reason})...`);
     // Hard stop if something hangs.
     setTimeout(() => process.exit(1), 15_000).unref();
@@ -328,7 +330,10 @@ async function main() {
   process.on('uncaughtException', (e) => log(`Uncaught exception: ${e.stack ?? e}`, 'error'));
   process.on('unhandledRejection', (e) => log(`Unhandled rejection: ${e instanceof Error ? (e.stack ?? e.message) : e}`, 'error'));
   // Last resort if something calls process.exit(): don't leave devtunnel orphaned.
-  process.on('exit', () => child?.kill());
+  process.on('exit', () => {
+    child?.kill();
+    shellProc?.kill();
+  });
 
   const getConfig = (reveal: boolean) => {
     const dotenv = readEnvFile(path.resolve('.env'));
@@ -410,7 +415,7 @@ async function main() {
           bus,
           getConfig,
           saveConfig,
-          getState: () => ({ version: '1.3.0', mcpPort: port, startedAt, publicUrl, tunnel: tunnelState }),
+          getState: () => ({ version: SERVER_VERSION, mcpPort: port, startedAt, publicUrl, tunnel: tunnelState }),
           restartTunnel: () => {
             if (!child || stopping) return;
             log('Restarting tunnel (requested from the UI)...');
@@ -476,7 +481,80 @@ function findAppBrowser(): string | undefined {
   return candidates.find((c) => fs.existsSync(c));
 }
 
+// ---- native shell: a frameless window (Windows only) that has no close button; Stop is the only way out ----
+let shellProc: ChildProcess | undefined;
+let shellStopping = false;
+let shellStarts: number[] = [];
+
+/** Stops the shell window (called first on shutdown so the window disappears at once). */
+function stopShell() {
+  shellStopping = true;
+  shellProc?.kill();
+}
+
+/**
+ * Path of the frameless WebView2 host, unpacked from the executable on first run (one folder per build).
+ * Undefined when there is none (not Windows, built without the .NET SDK, ...), in which case a browser app window is used.
+ */
+function shellExe(): string | undefined {
+  if (!isWin) return undefined;
+  try {
+    const sea = (process as unknown as { getBuiltinModule?: (id: string) => any }).getBuiltinModule?.('node:sea');
+    if (!sea?.isSea?.()) {
+      const dev = path.resolve('build-shell', 'CopilotShell.exe'); // npm run dev, after npm run build:shell
+      return fs.existsSync(dev) ? dev : undefined;
+    }
+    const manifest = JSON.parse(sea.getAsset('shell/manifest.json', 'utf8')) as { id: string; files: string[] };
+    const root = path.join(configDir(), 'shell');
+    const dir = path.join(root, manifest.id);
+    if (!fs.existsSync(path.join(dir, '.complete'))) {
+      fs.mkdirSync(dir, { recursive: true });
+      for (const name of manifest.files) fs.writeFileSync(path.join(dir, name), Buffer.from(sea.getAsset(`shell/${name}`)));
+      fs.writeFileSync(path.join(dir, '.complete'), '');
+      for (const old of fs.readdirSync(root)) if (old !== manifest.id) fs.rmSync(path.join(root, old), { recursive: true, force: true });
+    }
+    return path.join(dir, 'CopilotShell.exe');
+  } catch (e) {
+    log(`Native window unavailable: ${e instanceof Error ? e.message : e}`, 'debug');
+    return undefined;
+  }
+}
+
+function launchShell(exe: string, url: string) {
+  const proc = spawn(exe, ['--url', url, '--parent-pid', String(process.pid), '--data-dir', path.join(configDir(), 'webview2')], {
+    stdio: 'ignore',
+    windowsHide: false,
+  });
+  shellProc = proc;
+  proc.on('error', () => openInBrowser(url));
+  proc.on('exit', (code) => {
+    if (shellStopping) return;
+    if (code === 2) {
+      log('The WebView2 runtime is not installed; opening the UI in a browser window instead.', 'warn');
+      return openInBrowser(url);
+    }
+    // The window cannot be closed by the user, so an exit means a crash or a kill: bring it back, but not in a loop.
+    const now = Date.now();
+    shellStarts = shellStarts.filter((t) => now - t < 60_000);
+    shellStarts.push(now);
+    if (shellStarts.length > 3) {
+      log('The native window keeps exiting; opening the UI in a browser window instead.', 'warn');
+      return openInBrowser(url);
+    }
+    setTimeout(() => !shellStopping && launchShell(exe, url), 500);
+  });
+}
+
 function openUi(url: string) {
+  const exe = shellExe();
+  if (exe) {
+    launchShell(exe, url);
+    return;
+  }
+  openInBrowser(url);
+}
+
+function openInBrowser(url: string) {
   const detached = (cmd: string, argv: string[]) => spawn(cmd, argv, { stdio: 'ignore', detached: true, windowsHide: true });
   try {
     const browser = findAppBrowser();

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { inject } from 'postject';
+import { buildShell } from './build-shell.mjs';
 
 const name = 'copilot-workspace-mcp';
 const ALL = ['win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'];
@@ -28,11 +29,14 @@ fs.mkdirSync(outDir, { recursive: true });
 // Web UI: compile Tailwind, then inline the CSS into src/ui-web/index.html when esbuild loads it.
 const tailwindBin = path.resolve('node_modules/@tailwindcss/cli/dist/index.mjs');
 execFileSync(process.execPath, [tailwindBin, '-i', 'src/ui-web/input.css', '-o', path.join(work, 'ui.css'), '--minify'], { stdio: 'inherit' });
+// Inter (variable, latin) is inlined as a data URI so the UI looks the same on every OS and works offline.
+const interWoff2 = fs.readFileSync('node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2').toString('base64');
+const uiFontCss = `@font-face{font-family:"Inter Variable";font-style:normal;font-display:swap;font-weight:100 900;src:url(data:font/woff2;base64,${interWoff2}) format("woff2")}`;
 const inlineUiCss = {
   name: 'inline-ui-css',
   setup(b) {
     b.onLoad({ filter: /ui-web[\\/]index\.html$/ }, (args) => ({
-      contents: fs.readFileSync(args.path, 'utf8').replace('/*__TAILWIND__*/', () => fs.readFileSync(path.join(work, 'ui.css'), 'utf8')),
+      contents: fs.readFileSync(args.path, 'utf8').replace('/*__TAILWIND__*/', () => uiFontCss + fs.readFileSync(path.join(work, 'ui.css'), 'utf8')),
       loader: 'text',
     }));
   },
@@ -69,10 +73,15 @@ await build({
   external: ['chromium-bidi/*', 'electron'],
 });
 
+// Windows executables also carry the frameless WebView2 host, extracted on first run. It can only be built on
+// Windows with the .NET SDK; otherwise the launcher falls back to a browser app window. Other OSes ignore the assets.
+const shell = targets.some((t) => t.startsWith('win32')) ? buildShell() : undefined;
+const assets = shell ? Object.fromEntries(shell.files.map((f) => [`shell/${f}`, path.join(shell.dir, f)])) : undefined;
+
 // The blob contains no code cache/snapshot, so one blob works for every platform (it must match this Node's version).
 fs.writeFileSync(
   path.join(work, 'sea-config.json'),
-  JSON.stringify({ main: path.join(work, 'launcher.cjs'), output: path.join(work, 'app.blob'), disableExperimentalSEAWarning: true }),
+  JSON.stringify({ main: path.join(work, 'launcher.cjs'), output: path.join(work, 'app.blob'), disableExperimentalSEAWarning: true, ...(assets ? { assets } : {}) }),
 );
 execFileSync(process.execPath, ['--experimental-sea-config', path.join(work, 'sea-config.json')], { stdio: 'inherit' });
 const blob = fs.readFileSync(path.join(work, 'app.blob'));

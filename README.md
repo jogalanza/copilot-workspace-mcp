@@ -1,4 +1,4 @@
-# Copilot Workspace MCP v1.3
+# Copilot Workspace MCP v1.4
 
 MCP server that lets Microsoft 365 Copilot and Copilot Studio (incl. Teams) list, read and
 write files in named code workspaces. **Each chat keeps its own workspace**, and the choice
@@ -46,6 +46,13 @@ level/source/text filters, pause, clear and download, tunnel status with a resta
 `config.env` (saving validates and restarts the server in place), and a Stop button. Ctrl+C, closing the console or Stop shuts
 down the tunnel first, then the server, cleanly. The browser tools (`browser_*`) are on by default; set `ENABLE_BROWSER=false` to disable them.
 
+**Native window (Windows).** On Windows the UI opens in a small frameless WebView2 window instead of a browser window. It has no
+title bar and no close button (only minimize and maximize), Alt+F4 and the taskbar's "Close window" are ignored, and the window
+exits only when the app stops, so the server and tunnel cannot be left running by accident: **Stop** is the one way out. It needs
+the Edge WebView2 runtime (preinstalled on Windows 11 and current Windows 10); without it, or on macOS and Linux, the UI falls back
+to the browser app window described above. The host (`shell/`, .NET Framework 4.8, ~1 MB) is compiled by `npm run build:shell`
+and embedded in the executable by `npm run build:standalone` when the .NET SDK is installed (the Windows CI job has it).
+
 The tunnel allows anonymous clients by default (Copilot Studio / M365 Copilot cannot sign in to a dev tunnel; the API key still
 protects `/mcp`). Set `TUNNEL_ALLOW_ANONYMOUS=false` to restrict it to your own Microsoft account.
 
@@ -76,7 +83,7 @@ Set `OUT_DIR=some/folder` to write somewhere other than `release/`.
 Cross-built Linux and Windows binaries run as they are. Cross-built **macOS** binaries cannot be code-signed off a Mac, so on the Mac run
 once `codesign --sign - ./copilot-workspace-mcp` (the release archives avoid this because CI builds them on macOS runners).
 
-**Releases.** Pushing a tag such as `v1.3.0` runs `.github/workflows/release.yml`: it builds on Windows, Linux (x64 and arm64) and macOS
+**Releases.** Pushing a tag such as `v1.4.0` runs `.github/workflows/release.yml`: it builds on Windows, Linux (x64 and arm64) and macOS
 (Intel and Apple silicon) runners, packages the archives with `scripts/package-release.mjs`, and attaches them and `SHA256SUMS.txt` to a GitHub release.
 The same workflow can be started by hand (*Actions > Release executables*) to get the archives as a build artifact without a release.
 

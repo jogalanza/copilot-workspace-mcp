@@ -3,6 +3,7 @@ import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import fg from 'fast-glob';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { activity } from './activity.js';
 import { createMcpServer, SERVER_VERSION, type McpDeps } from './mcpServer.js';
 import { AccessError, extractApiKey, safeEqual } from './security.js';
 import type { RequestContext } from './workspaceManager.js';
@@ -95,15 +96,22 @@ export function createApp(deps: McpDeps) {
   if (config.traceFile) app.use('/mcp', traceMcp(config.traceFile));
 
   app.post('/mcp', requireApiKey, async (req, res) => {
+    const convo = req.headers['conversation-id'];
+    const ua = req.headers['user-agent'];
+    const calls = activity.recordBody(req.body, {
+      conversation: typeof convo === 'string' ? convo : undefined,
+      client: typeof ua === 'string' ? ua : undefined,
+    });
     const server = createMcpServer(deps, requestContext(req));
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on('close', () => {
+      activity.abandon(calls);
       transport.close();
       server.close();
     });
     try {
       await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      await activity.track(calls, () => transport.handleRequest(req, res, req.body));
     } catch (err) {
       console.error('MCP request failed:', err);
       if (!res.headersSent) {

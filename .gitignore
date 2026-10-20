@@ -28,4 +28,7 @@ Thumbs.db
 .screenshots/
 release/
 build-standalone/
+build-shell/
+shell/bin/
+shell/obj/
 .cache/

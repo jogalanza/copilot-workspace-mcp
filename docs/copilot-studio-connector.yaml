@@ -8,7 +8,7 @@ swagger: '2.0'
 info:
   title: Copilot Workspace MCP
   description: Read, list and write files in named code workspaces. Each chat keeps its own workspace.
-  version: 1.3.0
+  version: 1.4.0
 host: YOUR-TUNNEL-HOST.devtunnels.ms
 basePath: /
 schemes:
