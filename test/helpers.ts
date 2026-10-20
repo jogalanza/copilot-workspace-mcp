@@ -5,8 +5,8 @@ import { loadConfig, type AppConfig } from '../src/config.js';
 
 /** Create a temp sandbox with a state dir and named workspace folders. */
 export function makeSandbox(workspaceNames: string[] = ['alpha', 'beta']) {
-  // .native expands Windows 8.3 short names (e.g. JARED~1.GAL), matching fs.promises.realpath used by the server.
-  // Spaces on purpose: real deployments live under paths like "D:/Red Files/Projects".
+  // .native expands Windows 8.3 short names (e.g. USERNA~1.XYZ), matching fs.promises.realpath used by the server.
+  // Spaces on purpose: real deployments live under paths like "D:/My Projects/Projects".
   const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'copilot mcp test-')));
   const reposDir = path.join(base, 'My Repos');
   const stateDir = path.join(base, 'state');

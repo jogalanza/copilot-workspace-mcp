@@ -1,4 +1,4 @@
-# M365 Code Analyzer MCP v1.3
+# Copilot Workspace MCP v1.3
 
 MCP server that lets Microsoft 365 Copilot and Copilot Studio (incl. Teams) list, read and
 write files in named code workspaces. **Each chat keeps its own workspace**, and the choice
@@ -119,3 +119,7 @@ has no patched release. `list_files` mitigates it by capping glob patterns at 51
 ## Configuration
 
 See `.env.example`. State DB default: `%LOCALAPPDATA%\copilot-mcp\state.db`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

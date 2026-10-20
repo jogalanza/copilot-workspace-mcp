@@ -107,7 +107,7 @@ export class WorkspaceService {
     if (cleaned.includes('\0')) throw new AccessError('Invalid path.');
     let abs = path.resolve(cleaned);
     if (!(await fileExists(abs))) {
-      // e.g. "D:\RedFiles\..." sent for "D:\Red Files\...".
+      // e.g. "D:\MyProjects\..." sent for "D:\My Projects\...".
       const { base, segments } = splitAbsolute(abs);
       abs = (await matchIgnoringSpaces(base, segments, true)) ?? abs;
     }
@@ -121,8 +121,8 @@ export class WorkspaceService {
 
   /**
    * Same as resolveForPath for glob patterns: an absolute pattern such as
-   * "D:/Red Files/Projects/PDCS2022/host-vite/**\/*.vue" becomes "host-vite/**\/*.vue" in
-   * workspace PDCS. Matching is textual on the static prefix (globs cannot be realpath'd).
+   * "D:/My Projects/web-app/src/**\/*.vue" becomes "src/**\/*.vue" in
+   * workspace "web". Matching is textual on the static prefix (globs cannot be realpath'd).
    */
   async resolveForPattern(
     ctx: RequestContext,
@@ -134,7 +134,7 @@ export class WorkspaceService {
     const segs = (p: string) => p.split(/[\\/]+/).filter(Boolean);
     const patSegs = segs(cleaned);
     const current = await this.currentAlias(ctx, sel);
-    // Compare folder by folder, ignoring spaces/case ("D:/RedFiles/..." matches "D:\Red Files").
+    // Compare folder by folder, ignoring spaces/case ("D:/MyProjects/..." matches "D:\My Projects").
     const hits = this.store
       .listWorkspaces()
       .map((w) => ({ alias: w.alias, rootSegs: segs(w.root_path) }))
@@ -191,7 +191,7 @@ export class WorkspaceService {
   async add(alias: string, rawFolder: string, makeDefault = false) {
     alias = unquote(alias);
     assertAlias(alias);
-    // Accept "D:/Red Files/x", '"D:/Red Files/x"' and file:///D:/Red%20Files/x alike.
+    // Accept "D:/My Projects/x", '"D:/My Projects/x"' and file:///D:/My%20Projects/x alike.
     const folder = cleanAbsolutePath(rawFolder);
     if (this.config.allowedRoots.length === 0) {
       throw new AccessError('Adding workspaces is disabled. Set ALLOWED_ROOTS on the server to enable it.');
@@ -306,7 +306,7 @@ export class WorkspaceService {
     let real: string;
     try {
       real = await fs.realpath(folder).catch(async (err) => {
-        // Client dropped/added spaces ("D:\RedFiles\..." for "D:\Red Files\...").
+        // Client dropped/added spaces ("D:\MyProjects\..." for "D:\My Projects\...").
         const { base, segments } = splitAbsolute(folder);
         const fixed = await matchIgnoringSpaces(base, segments);
         if (!fixed) throw err;

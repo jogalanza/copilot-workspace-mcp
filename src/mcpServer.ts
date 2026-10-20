@@ -11,7 +11,7 @@ import type { ManagedProcess, ProcessManager } from './processManager.js';
 import { AccessError, assertSafeGlob, assertWritable, resolveInside, resolveUserPath, unquote } from './security.js';
 import type { RequestContext, ResolvedWorkspace, WorkspaceSelector, WorkspaceService } from './workspaceManager.js';
 
-export const SERVER_NAME = 'm365-code-analyzer';
+export const SERVER_NAME = 'copilot-workspace-mcp';
 export const SERVER_VERSION = '1.3.0';
 
 type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };

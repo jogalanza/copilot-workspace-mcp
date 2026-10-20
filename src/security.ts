@@ -39,7 +39,7 @@ export async function realpathOfExistingAncestor(p: string): Promise<string> {
 
 /**
  * Trim whitespace and strip matching surrounding quotes. Shells, .env files and LLM
- * clients often wrap paths that contain spaces in quotes ("D:/Red Files/x").
+ * clients often wrap paths that contain spaces in quotes ("D:/My Projects/x").
  * Spaces *inside* the path are preserved.
  */
 export function unquote(value: string): string {
@@ -95,8 +95,8 @@ export function sameIgnoringSpaces(a: string, b: string): boolean {
 }
 
 /**
- * Clients and LLMs sometimes drop or add spaces in folder names ("D:\RedFiles" for
- * "D:\Red Files"). Walk `segments` below `base`; any segment that does not exist is
+ * Clients and LLMs sometimes drop or add spaces in folder names ("D:\MyProjects" for
+ * "D:\My Projects"). Walk `segments` below `base`; any segment that does not exist is
  * matched against the real directory entries ignoring whitespace, and only when exactly
  * one entry matches. Returns the corrected absolute path, or undefined if a segment
  * cannot be matched unambiguously. With `allowMissingLeaf`, the last segment may be a

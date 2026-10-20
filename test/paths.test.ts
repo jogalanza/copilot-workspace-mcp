@@ -21,8 +21,8 @@ describe('paths with spaces', () => {
   });
 
   it('unquote / cleanAbsolutePath keep inner spaces and strip wrappers', () => {
-    assert.equal(unquote('  "D:/Red Files/x"  '), 'D:/Red Files/x');
-    assert.equal(unquote("'D:/Red Files/x'"), 'D:/Red Files/x');
+    assert.equal(unquote('  "D:/My Projects/x"  '), 'D:/My Projects/x');
+    assert.equal(unquote("'D:/My Projects/x'"), 'D:/My Projects/x');
     assert.equal(unquote('"\'a b\'"'), 'a b');
     assert.equal(unquote('"unbalanced'), '"unbalanced');
     assert.equal(cleanAbsolutePath(pathToFileURL(root).href), root);

@@ -6,7 +6,7 @@
 # Header names intentionally have no "X-" prefix (X- headers were not forwarded by MCP connectors).
 swagger: '2.0'
 info:
-  title: M365 Code Analyzer MCP
+  title: Copilot Workspace MCP
   description: Read, list and write files in named code workspaces. Each chat keeps its own workspace.
   version: 1.3.0
 host: YOUR-TUNNEL-HOST.devtunnels.ms
@@ -16,7 +16,7 @@ schemes:
 paths:
   /mcp:
     post:
-      summary: M365 Code Analyzer MCP server
+      summary: Copilot Workspace MCP server
       x-ms-agentic-protocol: mcp-streamable-1.0
       operationId: InvokeServer
       parameters:

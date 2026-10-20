@@ -48,12 +48,12 @@ function splitList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Absolute path from config: tolerates quotes ("D:/Red Files/x") and file:// URLs (D:/Red%20Files). */
+/** Absolute path from config: tolerates quotes ("D:/My Projects/x") and file:// URLs (D:/My%20Projects). */
 export function configPath(value: string): string {
   return path.resolve(cleanAbsolutePath(value));
 }
 
-/** WORKSPACES="api=D:/Repos/Api;web=D:/Red Files/Web"  (alias="D:/Red Files/Web" also accepted) */
+/** WORKSPACES="api=D:/Repos/Api;web=D:/My Projects/Web"  (alias="D:/My Projects/Web" also accepted) */
 export function parseWorkspaceList(value: string | undefined): Map<string, string> {
   const map = new Map<string, string>();
   for (const entry of splitList(value)) {

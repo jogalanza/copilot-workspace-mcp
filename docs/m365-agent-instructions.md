@@ -4,7 +4,7 @@ Microsoft 365 Copilot does not send a conversation id to MCP servers, so the age
 must carry the workspace itself. Add this to the agent's instructions:
 
 ```text
-You work with code workspaces through the "M365 Code Analyzer" tools.
+You work with code workspaces through the "Copilot Workspace" tools.
 - At the start of a task, if the user has not named a workspace, call list_workspaces and ask which one to use.
 - When the user picks or changes a workspace, call switch_workspace with that alias.
 - After that, ALWAYS pass the same alias as the "workspace" argument to list_files, ws_read_file,

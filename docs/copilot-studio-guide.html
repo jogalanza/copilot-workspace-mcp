@@ -94,7 +94,7 @@
 <div class="wrap">
 
 <header class="hero">
-  <div class="eyebrow">M365 Code Analyzer MCP</div>
+  <div class="eyebrow">Copilot Workspace MCP</div>
   <h1>Set up a Copilot Studio agent with this MCP server</h1>
   <p class="lead">Give a Copilot Studio agent (and Teams chats) the ability to list, read and write files in named code workspaces on your machine, with each chat remembering its own workspace.</p>
   <nav class="toc" aria-label="Contents">
@@ -182,13 +182,13 @@ devtunnel host -p 8790 --allow-anonymous</code></pre>
   <h2><span class="num">3</span>Create the agent</h2>
   <ol class="steps">
     <li>Open <b>Copilot Studio</b> and choose <b>Create</b> &rarr; <b>New agent</b>.</li>
-    <li>Give it a name such as <i>Code Analyzer</i> and a short description.</li>
+    <li>Give it a name such as <i>Workspace Agent</i> and a short description.</li>
     <li>Skip generated topics or knowledge sources. This agent works through tools.</li>
   </ol>
   <div class="mock" aria-hidden="true">
     <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; Copilot Studio &rsaquo; Create agent</div>
     <div class="mock-body">
-      <div class="field"><small>Name</small><div class="input">Code Analyzer</div></div>
+      <div class="field"><small>Name</small><div class="input">Workspace Agent</div></div>
       <div class="field"><small>Description</small><div class="input">Reads and edits files in my code workspaces.</div></div>
       <div class="mock-row"><span class="btn">Create</span></div>
     </div>
@@ -200,7 +200,7 @@ devtunnel host -p 8790 --allow-anonymous</code></pre>
   <p>In the agent, go to <b>Tools</b> and choose <b>Add</b> &rarr; <b>Model Context Protocol</b>. This opens the MCP onboarding wizard.</p>
   <h3>4a. Fill in the server details</h3>
   <ol class="steps">
-    <li><b>Server name</b>: <i>M365 Code Analyzer MCP</i>.</li>
+    <li><b>Server name</b>: <i>Copilot Workspace MCP</i>.</li>
     <li><b>Server description</b>: <i>Read, list and write files in named code workspaces.</i></li>
     <li><b>Server URL</b>: <code>https://&lt;tunnel-host&gt;/mcp</code>. The <code>/mcp</code> suffix is required.</li>
     <li><b>Authentication</b>: choose <b>API key</b>, set <b>Type</b> to <b>Header</b> and <b>Header name</b> to <code>api-key</code>.</li>
@@ -209,7 +209,7 @@ devtunnel host -p 8790 --allow-anonymous</code></pre>
   <div class="mock" aria-hidden="true">
     <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; Tools &rsaquo; Add &rsaquo; Model Context Protocol</div>
     <div class="mock-body">
-      <div class="field"><small>Server name</small><div class="input">M365 Code Analyzer MCP</div></div>
+      <div class="field"><small>Server name</small><div class="input">Copilot Workspace MCP</div></div>
       <div class="field"><small>Server description</small><div class="input">Read, list and write files in named code workspaces.</div></div>
       <div class="field"><small>Server URL</small><div class="input">https://abc123-8790.euw.devtunnels.ms/mcp</div></div>
       <div class="mock-row">
@@ -268,7 +268,7 @@ devtunnel host -p 8790 --allow-anonymous</code></pre>
 <section id="s6">
   <h2><span class="num">6</span>Add instructions</h2>
   <p>In the agent's <b>Instructions</b> field, paste:</p>
-<pre><code>You work with code workspaces through the "M365 Code Analyzer" tools
+<pre><code>You work with code workspaces through the "Copilot Workspace" tools
 (list_workspaces, switch_workspace, current_workspace, list_files, ws_read_file, ws_write_file).
 - Always use ws_read_file and ws_write_file for files. Never use any built-in file tool.
 - At the start of a task, if the user has not named a workspace, call list_workspaces and ask which to use.
