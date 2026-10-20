@@ -7,6 +7,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AppConfig } from './config.js';
 import type { StateStore } from './db.js';
 import { assertUrlAllowed, type BrowserManager } from './browserManager.js';
+import { assertRef, assertRemote, git, gitPaths } from './gitTools.js';
 import type { ManagedProcess, ProcessManager } from './processManager.js';
 import { AccessError, assertSafeGlob, assertWritable, resolveInside, resolveUserPath, unquote } from './security.js';
 import type { RequestContext, ResolvedWorkspace, WorkspaceSelector, WorkspaceService } from './workspaceManager.js';
@@ -665,6 +666,215 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
           return list
             .map((p) => `${p.id}  ${p.exitCode === undefined && !p.signal ? 'running' : 'exited'}  [${p.alias}] ${p.command}`)
             .join('\n');
+        }),
+    );
+  }
+
+  if (config.enableGit) {
+    const timeoutMs = config.runTimeoutSeconds * 1000;
+    /** Resolve the workspace, run git there, and prefix the output with the workspace tag. */
+    const gitCall = (
+      tool: string,
+      args: WorkspaceSelector,
+      relPath: string | undefined,
+      build: (root: string) => Promise<string[]> | string[],
+    ) =>
+      run(tool, args, relPath, async (audit) => {
+        const ws = await workspaces.resolve(ctx, args);
+        audit.alias = ws.alias;
+        const root = await fsp.realpath(ws.root);
+        return `${tag(ws)}\n${await git(root, await build(root), timeoutMs)}`;
+      });
+    const pathsShape = z.array(z.string()).nullish();
+
+    server.registerTool(
+      'git_status',
+      {
+        title: 'Git status',
+        description: 'Show the git status of the workspace (branch, upstream, staged/unstaged/untracked files).',
+        inputSchema: { ...selectorShape },
+      },
+      async (args) => gitCall('git_status', args, undefined, () => ['status', '--short', '--branch']),
+    );
+
+    server.registerTool(
+      'git_diff',
+      {
+        title: 'Git diff',
+        description:
+          'Show changes. Default: unstaged changes. staged=true shows what is staged. "ref" (and optional "ref2") ' +
+          'compares against a commit/branch. Limit with "paths". Output is truncated.',
+        inputSchema: {
+          staged: z.boolean().nullish().describe('Show staged changes (--cached).'),
+          ref: z.string().nullish().describe('Commit or branch to compare with, e.g. "main" or "HEAD~1".'),
+          ref2: z.string().nullish().describe('Second ref, to diff ref..ref2.'),
+          paths: pathsShape.describe('Limit to these files/folders (relative to the workspace root).'),
+          stat: z.boolean().nullish().describe('Only a per-file summary (--stat).'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        gitCall('git_diff', args, args.paths?.join(', '), async (root) => {
+          const a = ['diff', '--no-ext-diff', '--no-textconv'];
+          if (args.stat) a.push('--stat');
+          if (args.staged) a.push('--cached');
+          if (args.ref) a.push(assertRef(args.ref));
+          if (args.ref2) a.push(assertRef(args.ref2));
+          if (args.paths?.length) a.push('--', ...(await gitPaths(root, args.paths)));
+          return a;
+        }),
+    );
+
+    server.registerTool(
+      'git_log',
+      {
+        title: 'Git log',
+        description: 'Show recent commits (hash, author, date, subject), newest first.',
+        inputSchema: {
+          maxCount: z.number().int().positive().nullish().describe('Number of commits (default 20, max 200).'),
+          ref: z.string().nullish().describe('Branch or commit to start from. Default HEAD.'),
+          path: z.string().nullish().describe('Only commits touching this file/folder.'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        gitCall('git_log', args, args.path ?? undefined, async (root) => {
+          const a = ['log', `--max-count=${Math.min(args.maxCount ?? 20, 200)}`, '--date=short', '--format=%h %ad %an  %s%d'];
+          if (args.ref) a.push(assertRef(args.ref));
+          if (args.path) a.push('--', ...(await gitPaths(root, [args.path])));
+          return a;
+        }),
+    );
+
+    server.registerTool(
+      'git_add',
+      {
+        title: 'Git add',
+        description: 'Stage files for commit. Pass explicit paths (use "." for everything).',
+        inputSchema: {
+          paths: z.array(z.string()).min(1).describe('Files or folders relative to the workspace root, or ["."].'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        gitCall('git_add', args, args.paths.join(', '), async (root) => [
+          'add',
+          '--',
+          ...(await gitPaths(root, args.paths)),
+        ]),
+    );
+
+    server.registerTool(
+      'git_commit',
+      {
+        title: 'Git commit',
+        description:
+          'Commit the staged changes with the given message (stage first with git_add). all=true also stages ' +
+          'modifications to already-tracked files (git commit -a). Uses the git identity configured on the server.',
+        inputSchema: {
+          message: z.string().min(1).describe('Commit message.'),
+          all: z.boolean().nullish().describe('Stage tracked, modified files automatically.'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        gitCall('git_commit', args, undefined, () => {
+          if (!args.message.trim()) throw new AccessError('Commit message is required.');
+          return ['commit', ...(args.all ? ['-a'] : []), '-m', args.message];
+        }),
+    );
+
+    server.registerTool(
+      'git_branch',
+      {
+        title: 'Git branch',
+        description:
+          'List branches (default), create a branch (name), or safely delete a merged branch (name + delete=true). ' +
+          'Creating does not switch to it; use git_checkout.',
+        inputSchema: {
+          name: z.string().nullish().describe('Branch to create or delete. Omit to list.'),
+          delete: z.boolean().nullish().describe('Delete the named branch (only if fully merged).'),
+          from: z.string().nullish().describe('Start point for a new branch. Default HEAD.'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        gitCall('git_branch', args, args.name ?? undefined, () => {
+          if (!args.name) return ['branch', '-vv', '--all'];
+          const name = assertRef(args.name, 'branch name');
+          if (args.delete) return ['branch', '-d', name];
+          return ['branch', name, ...(args.from ? [assertRef(args.from)] : [])];
+        }),
+    );
+
+    server.registerTool(
+      'git_checkout',
+      {
+        title: 'Git checkout',
+        description:
+          'Switch to a branch (git switch). create=true creates it first. Refuses to overwrite uncommitted changes.',
+        inputSchema: {
+          branch: z.string().describe('Branch name.'),
+          create: z.boolean().nullish().describe('Create the branch (git switch -c).'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        gitCall('git_checkout', args, args.branch, () => [
+          'switch',
+          ...(args.create ? ['-c'] : []),
+          assertRef(args.branch, 'branch name'),
+        ]),
+    );
+
+    server.registerTool(
+      'git_pull',
+      {
+        title: 'Git pull',
+        description: 'Fetch and fast-forward the current branch from its remote (fast-forward only; never creates merge commits).',
+        inputSchema: {
+          remote: z.string().nullish().describe('Remote name, e.g. "origin". Default: the branch\'s upstream.'),
+          branch: z.string().nullish().describe('Remote branch. Requires "remote".'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        gitCall('git_pull', args, args.branch ?? undefined, () => {
+          const a = ['pull', '--ff-only'];
+          if (args.remote) {
+            a.push(assertRemote(args.remote));
+            if (args.branch) a.push(assertRef(args.branch, 'branch name'));
+          } else if (args.branch) {
+            throw new AccessError('"branch" requires "remote".');
+          }
+          return a;
+        }),
+    );
+
+    server.registerTool(
+      'git_push',
+      {
+        title: 'Git push',
+        description:
+          'Push the current branch to a remote. Force-push is not available. setUpstream=true sets the tracking ' +
+          'branch on first push. Credentials come from the server\'s git credential helper; it never prompts.',
+        inputSchema: {
+          remote: z.string().nullish().describe('Remote name. Default "origin".'),
+          branch: z.string().nullish().describe('Branch to push. Default: the current branch.'),
+          setUpstream: z.boolean().nullish().describe('Pass -u to set the upstream.'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        gitCall('git_push', args, args.branch ?? undefined, async (root) => {
+          const remote = assertRemote(args.remote ?? 'origin');
+          let branch = args.branch ? assertRef(args.branch, 'branch name') : undefined;
+          if (!branch) {
+            const cur = (await git(root, ['branch', '--show-current'], timeoutMs)).trim();
+            if (!cur || cur === '(no output)') throw new AccessError('Detached HEAD: pass "branch" explicitly.');
+            branch = assertRef(cur, 'branch name');
+          }
+          return ['push', ...(args.setUpstream ? ['-u'] : []), remote, branch];
         }),
     );
   }

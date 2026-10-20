@@ -37,6 +37,8 @@ export interface AppConfig {
   runTimeoutSeconds: number;
   maxBackgroundProcesses: number;
   maxProcessOutputBytes: number;
+  /** git_* tools (runs the server's git in a workspace). On by default; ENABLE_GIT=false disables them. */
+  enableGit: boolean;
 }
 
 /** Split a list on ';' (and newlines). ';' is used instead of path.delimiter so
@@ -115,5 +117,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     runTimeoutSeconds: int(env.RUN_TIMEOUT_SECONDS, 120, 'RUN_TIMEOUT_SECONDS'),
     maxBackgroundProcesses: int(env.MAX_BACKGROUND_PROCESSES, 3, 'MAX_BACKGROUND_PROCESSES'),
     maxProcessOutputBytes: int(env.MAX_PROCESS_OUTPUT_BYTES, 64 * 1024, 'MAX_PROCESS_OUTPUT_BYTES'),
+    enableGit: env.ENABLE_GIT !== 'false',
   };
 }

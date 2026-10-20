@@ -40,6 +40,7 @@ export async function startServer(opts: { handleSignals?: boolean } = {}): Promi
   log(`State DB: ${config.stateDbPath}`);
   if (config.traceFile) log(`MCP_TRACE on: every /mcp request is written to ${config.traceFile}`);
   if (browser) log(`Browser tools on (${config.browserExecutable ?? config.browserChannel}); allowed hosts: ${config.browserAllowedHosts.join(', ')}`);
+  if (config.enableGit) log('Git tools on (set ENABLE_GIT=false to disable)');
   if (processes) log(`run_command allowed: ${config.runAllowedCommands.join(' | ')}`);
   log(`Workspaces: ${workspaces.availableText()} Default: ${workspaces.getDefault() ?? '(none)'}`);
   if (config.allowedRoots.length) log(`add_workspace allowed under: ${config.allowedRoots.join('; ')}`);

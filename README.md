@@ -124,6 +124,7 @@ Both are **off by default** (see `.env.example`).
 | Tool | Enabled by | Purpose |
 |---|---|---|
 | `browser_open`, `browser_screenshot`, `browser_text`, `browser_click`, `browser_type`, `browser_logs`, `browser_eval`, `browser_close` | `ENABLE_BROWSER=true` | Drive a headless Edge/Chrome (one tab per chat). Screenshots are returned as images **and** saved under `<workspace>/.screenshots/`. |
+| `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_pull`, `git_push` | on by default; `ENABLE_GIT=false` disables | Run git in a workspace. No shell, never prompts for credentials, remotes must be configured names, pull is fast-forward only, and force-push is not available. |
 | `run_command`, `process_output`, `process_stop`, `list_processes` | `RUN_ALLOWED_COMMANDS` non-empty | Run allowlisted commands in a workspace root, optionally in the background (dev servers), with output capture. |
 
 Typical flow: `run_command` `npm run dev` (background, `readyText`) -> `browser_open` the printed URL -> `browser_screenshot` -> `browser_logs` -> `process_stop`.

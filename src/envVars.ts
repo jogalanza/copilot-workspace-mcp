@@ -37,6 +37,9 @@ export const KNOWN_VARS: KnownVar[] = [
   { key: 'BROWSER_ALLOWED_HOSTS', default: 'localhost;127.0.0.1;[::1]', description: "Hosts the browser may load (';'-separated, *.example.com allowed). Default: localhost only." },
   { key: 'BROWSER_IDLE_MINUTES', default: '10', description: 'Close the browser after this many idle minutes.' },
 
+  // --- Git tools
+  { key: 'ENABLE_GIT', default: 'true', description: 'git_* tools (status, diff, log, add, commit, branch, checkout, pull, push) in a workspace. On by default; set false to disable. Force-push is never allowed.' },
+
   // --- run_command
   { key: 'RUN_ALLOWED_COMMANDS', description: "SECURITY: commands Copilot may run, as prefixes separated by ';' (e.g. npm run dev;npm test). Empty = run_command disabled. Never list interpreters (node, python, powershell, cmd)." },
   { key: 'RUN_TIMEOUT_SECONDS', default: '120', description: 'Timeout for run_command.' },
@@ -48,4 +51,4 @@ export const KNOWN_VARS: KnownVar[] = [
 ];
 
 /** Defaults the standalone launcher applies below config.env, .env and the real environment. */
-export const LAUNCHER_DEFAULTS: Record<string, string> = { ENABLE_BROWSER: 'true' };
+export const LAUNCHER_DEFAULTS: Record<string, string> = { ENABLE_BROWSER: 'true', ENABLE_GIT: 'true' };
