@@ -80,6 +80,15 @@ once `codesign --sign - ./copilot-workspace-mcp` (the release archives avoid thi
 (Intel and Apple silicon) runners, packages the archives with `scripts/package-release.mjs`, and attaches them and `SHA256SUMS.txt` to a GitHub release.
 The same workflow can be started by hand (*Actions > Release executables*) to get the archives as a build artifact without a release.
 
+## Configure a Copilot Studio agent
+
+Step-by-step guide: **[Set up a Copilot Studio agent with this MCP server](docs/copilot-studio-guide.html)**
+([view it rendered](https://htmlpreview.github.io/?https://github.com/jogalanza/copilot-workspace-mcp/blob/main/docs/copilot-studio-guide.html),
+since GitHub shows `.html` files as source; or download the repo file and open it in a browser).
+It covers adding the MCP tool, the `api-key` header authentication, the per-chat workspace input, the optional browser and
+command tools, and troubleshooting. The quick version: add an MCP tool with your public `https://.../mcp` URL, authentication
+**API key**, type **Header**, name `api-key`, value = your key.
+
 ## How a chat's workspace is chosen
 
 For every tool call the server resolves the workspace in this order:
