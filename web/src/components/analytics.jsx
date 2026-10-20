@@ -1,5 +1,4 @@
 import { ago, fmtBytes, fmtMs, upTime } from '../util.js';
-import { Spark } from './charts.jsx';
 
 const callsLabel = (t) => t.calls + (t.calls === 1 ? ' call' : ' calls');
 
@@ -218,34 +217,30 @@ function Heatmap({ hours, now }) {
   );
 }
 
-/** One row per workspace: calls since start, share of all workspace calls, and a trend line with the change over the period. */
+/** Change in calls between the earlier and the later half of a workspace's trend: "up 40%", "down 25%", "new" or "steady". */
+function trendLabel(trend) {
+  const half = Math.floor(trend.length / 2);
+  const before = trend.slice(0, half).reduce((n, v) => n + v, 0);
+  const after = trend.slice(half).reduce((n, v) => n + v, 0);
+  if (before === 0) return after > 0 ? 'new' : 'steady';
+  const delta = Math.round(((after - before) / before) * 100);
+  return delta === 0 ? 'steady' : (delta > 0 ? '↑ ' : '↓ ') + Math.abs(delta) + '%';
+}
+
+/** Same bar-row list as Chats and clients: one row per workspace, with the change since the first half of uptime. */
 function WorkspaceTrends({ items }) {
-  if (!items.length) return <div className="mt-2 text-sm text-mute">No workspace calls yet.</div>;
   const total = items.reduce((n, w) => n + w.calls, 0);
+  const top = items.length ? Math.max(1, ...items.map((w) => w.calls)) : 1;
   return (
-    <div className="mt-2 flex flex-col gap-2">
-      {items.map((w) => {
-        const half = Math.floor(w.trend.length / 2);
-        const before = w.trend.slice(0, half).reduce((n, v) => n + v, 0);
-        const after = w.trend.slice(half).reduce((n, v) => n + v, 0);
-        // Compare the recent half of the period with the earlier half.
-        const delta = before === 0 ? (after > 0 ? null : 0) : Math.round(((after - before) / before) * 100);
-        const label = delta === null ? 'new' : delta === 0 ? 'steady' : (delta > 0 ? '↑ ' : '↓ ') + Math.abs(delta) + '%';
-        return (
-          <div key={w.alias} className="rounded-xl bg-white/5 px-3 py-1.5">
-            <div className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="min-w-0 truncate font-medium">{w.alias}</span>
-              <span className="shrink-0 tabular-nums">{callsLabel(w)}</span>
-            </div>
-            <Spark values={w.trend} lo={0} hi={Math.max(1, ...w.trend)} color="#2aa7ff" />
-            <div className="flex justify-between text-xs text-mute">
-              <span>{Math.round((w.calls / total) * 100)}% of workspace calls{w.errors ? ' · ' + w.errors + ' failed' : ''}</span>
-              <span className={delta === null || delta > 0 ? 'text-go' : ''}>{label}</span>
-            </div>
-          </div>
-        );
+    <ToolList
+      items={items.map((w) => ({ ...w, name: w.alias }))}
+      empty="No workspace calls yet."
+      row={(w) => ({
+        frac: w.calls / top,
+        value: callsLabel(w),
+        sub: Math.round((w.calls / total) * 100) + '% of workspace calls · ' + trendLabel(w.trend) + (w.errors ? ' · ' + w.errors + ' failed' : ''),
       })}
-    </div>
+    />
   );
 }
 
