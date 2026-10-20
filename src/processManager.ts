@@ -9,10 +9,10 @@ const SAFE_TOKEN = /^[A-Za-z0-9_@+=:,./\\-]+$/;
 /**
  * Validate `command` against the admin allowlist and return its argv.
  * Each allowlist entry is a command prefix ("npm run dev"); extra arguments after it are allowed
- * but every token must be free of shell metacharacters. Do not allowlist interpreters
- * ("node", "python", "powershell") because their arguments can run arbitrary code.
+ * but every token must be free of shell metacharacters. Interpreters and build tools ("node",
+ * "python", "dotnet") can run arbitrary code, so the admin must choose them knowingly; never allowlist a shell.
  */
-export function parseCommand(command: string, allowed: string[]): string[] {
+export function parseCommand(command: string, allowed: string[], userApproved = false): string[] {
   if (!allowed.length) throw new AccessError('run_command is disabled: RUN_ALLOWED_COMMANDS is empty.');
   if (/[\r\n\0]/.test(command)) throw new AccessError('command must be a single line.');
   const tokens = command.trim().split(/\s+/).filter(Boolean);
@@ -28,7 +28,13 @@ export function parseCommand(command: string, allowed: string[]): string[] {
     const prefix = entry.trim().split(/\s+/);
     return prefix.length <= tokens.length && prefix.every((p, i) => p.toLowerCase() === tokens[i].toLowerCase());
   });
-  if (!ok) throw new AccessError(`Command not allowed. Allowed commands: ${allowed.join(' | ')}`);
+  // Shell operators and quotes stay refused even with approval; only the allowlist check is waived.
+  if (!ok && !userApproved) {
+    throw new AccessError(
+      `Command not on the allowlist (${allowed.join(' | ')}). If it is needed and safe, ask the user in chat to approve ` +
+        `this exact command: "${tokens.join(' ')}". Only after they agree, call run_command again with userApproved=true.`,
+    );
+  }
   return tokens;
 }
 
@@ -64,8 +70,8 @@ export class ProcessManager {
     return p;
   }
 
-  start(owner: string, alias: string, cwd: string, command: string): ManagedProcess {
-    const argv = parseCommand(command, this.config.runAllowedCommands);
+  start(owner: string, alias: string, cwd: string, command: string, userApproved = false): ManagedProcess {
+    const argv = parseCommand(command, this.config.runAllowedCommands, userApproved && this.config.runAllowApproval);
     const running = [...this.procs.values()].filter((p) => p.exitCode === undefined && p.signal === undefined);
     if (running.length >= this.config.maxBackgroundProcesses) {
       throw new AccessError(
@@ -73,7 +79,7 @@ export class ProcessManager {
       );
     }
     // Never hand the server's own secret to child processes.
-    const { MCP_API_KEY: _omit, ...env } = process.env;
+    const { MCP_API_KEY: _omit, BRAVE_API_KEY: _omit2, ...env } = process.env;
     const opts = {
       cwd,
       env,

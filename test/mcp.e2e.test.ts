@@ -77,6 +77,7 @@ describe('MCP over HTTP: two chats, restart, M365-style calls', () => {
       const tools = (await chatA.listTools()).tools.map((t) => t.name).sort();
       assert.deepEqual(tools, [
         'add_workspace',
+        'curl',
         'current_workspace',
         'git_add',
         'git_branch',
@@ -89,8 +90,13 @@ describe('MCP over HTTP: two chats, restart, M365-style calls', () => {
         'git_status',
         'list_files',
         'list_workspaces',
+        'notebook_edit',
         'remove_workspace',
         'switch_workspace',
+        'todo_read',
+        'todo_write',
+        'ws_edit_file',
+        'ws_grep',
         'ws_read_file',
         'ws_write_file',
       ]);

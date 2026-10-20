@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { createApp } from '../src/app.js';
-import { assertUrlAllowed, BrowserManager, isHostAllowed } from '../src/browserManager.js';
+import { assertUrlAllowed, BrowserManager, isHostAllowed, loopbackVariants } from '../src/browserManager.js';
 import type { AppConfig } from '../src/config.js';
 import { StateStore } from '../src/db.js';
 import { parseCommand, ProcessManager } from '../src/processManager.js';
@@ -144,6 +145,24 @@ s.listen(0, '127.0.0.1', () => console.log('READY http://127.0.0.1:' + s.address
     await c.close();
   });
 
+  it('process_wait returns on readiness text, times out while running, and reports exit', async () => {
+    const c = await connect('conv-wait');
+    try {
+      const started = await call(c, 'run_command', { command: 'node server.mjs', background: true, timeoutSeconds: 1, readyText: 'NEVER-PRINTED' });
+      const id = /process ([0-9a-f]{6}) \[running\]/.exec(started.text)?.[1];
+      assert.ok(id, started.text);
+      const ready = await call(c, 'process_wait', { id, untilText: 'READY', timeoutSeconds: 10 });
+      assert.match(ready.text, /^"READY" appeared/);
+      const slow = await call(c, 'process_wait', { id, untilText: 'NEVER-PRINTED', timeoutSeconds: 1 });
+      assert.match(slow.text, /^still running after 1s/);
+      await call(c, 'process_stop', { id });
+      assert.match((await call(c, 'process_wait', { id, timeoutSeconds: 5 })).text, /^process exited/);
+      assert.equal((await call(c, 'process_wait', { id: 'ffffff' })).isError, true);
+    } finally {
+      await c.close();
+    }
+  });
+
   it('keeps processes private to the chat that started them', async () => {
     const a = await connect('conv-A');
     const b = await connect('conv-B');
@@ -161,6 +180,58 @@ s.listen(0, '127.0.0.1', () => console.log('READY http://127.0.0.1:' + s.address
       await a.close();
       await b.close();
     }
+  });
+
+  it('asks for user approval before running a command that is not on the allowlist', async () => {
+    const c = await connect('conv-approve');
+    try {
+      const refused = await call(c, 'run_command', { command: 'node -v' });
+      assert.equal(refused.isError, true);
+      assert.match(refused.text, /ask the user in chat to approve this exact command: "node -v"[\s\S]*userApproved=true/);
+      const approved = await call(c, 'run_command', { command: 'node -v', userApproved: true });
+      assert.equal(approved.isError, false, approved.text);
+      assert.match(approved.text, /exited \(code 0\)/);
+      // Approval waives only the allowlist, never the shell-operator rules.
+      const chained = await call(c, 'run_command', { command: 'node -v && calc', userApproved: true });
+      assert.equal(chained.isError, true);
+      assert.match(chained.text, /characters that are not allowed/);
+    } finally {
+      await c.close();
+    }
+  });
+
+  it('browser_open retries other loopback addresses and explains a closed port', { skip: !browserOk && 'no Edge/Chrome available' }, async () => {
+    const v6 = http.createServer((_q, r) => r.setHeader('content-type', 'text/html').end('<title>v6 app</title>hi'));
+    const bound = await new Promise<boolean>((resolve) => {
+      v6.once('error', () => resolve(false));
+      v6.listen(0, '::1', () => resolve(true));
+    });
+    const c = await connect('conv-loopback');
+    try {
+      if (bound) {
+        const port = (v6.address() as AddressInfo).port;
+        const opened = await call(c, 'browser_open', { url: `http://127.0.0.1:${port}/` });
+        assert.equal(opened.isError, false, opened.text);
+        assert.match(opened.text, /title: v6 app/);
+        assert.match(opened.text, /127\.0\.0\.1:\d+ refused the connection, but (localhost|\[::1\]):\d+ answered/);
+      }
+      const free = http.createServer();
+      await new Promise<void>((r) => free.listen(0, '127.0.0.1', r));
+      const closedPort = (free.address() as AddressInfo).port;
+      await new Promise((r) => free.close(r));
+      const closed = await call(c, 'browser_open', { url: `http://localhost:${closedPort}/` });
+      assert.equal(closed.isError, true);
+      assert.match(closed.text, /Connection refused at http:\/\/localhost:\d+: nothing is listening[\s\S]*run_command with background=true/);
+    } finally {
+      await c.close();
+      v6.close();
+    }
+  });
+
+  it('loopbackVariants lists the other loopback spellings only for loopback hosts', () => {
+    assert.deepEqual(loopbackVariants(new URL('http://127.0.0.1:5000/a')).map((u) => u.host), ['localhost:5000', '[::1]:5000']);
+    assert.deepEqual(loopbackVariants(new URL('http://[::1]:5000/')).map((u) => u.host), ['localhost:5000', '127.0.0.1:5000']);
+    assert.deepEqual(loopbackVariants(new URL('https://example.com/')), []);
   });
 
   it('opens a local page, screenshots it, reads text, clicks, and blocks external hosts', { skip: !browserOk && 'no Edge/Chrome available' }, async () => {

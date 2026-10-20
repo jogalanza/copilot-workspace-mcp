@@ -124,6 +124,19 @@ Every file tool reply starts with `[workspace: <alias>]`.
 | `list_files` | Glob within the workspace (skips `node_modules`, `.git`) |
 | `ws_read_file` | Read a text file (size-capped) |
 | `ws_write_file` | Atomic create/overwrite; blocked in `.git`, `node_modules` |
+| `ws_edit_file` | Exact-string replacement (one edit or an atomic list of `edits`); `oldString` must be unique unless `replaceAll` |
+| `ws_grep` | Regex search of file contents (`content`, `files` or `count` output, context lines, `glob` and sub-folder filters) |
+| `notebook_edit` | Replace, insert or delete one cell of a Jupyter `.ipynb` |
+| `todo_write`, `todo_read` | Per-chat task list that survives restarts |
+
+`ws_read_file` also takes `offset`, `limit` and `lineNumbers`, and `list_files` takes `sortBy: "modified"`.
+
+### Optional: web tools
+
+| Tool | Enabled by | Purpose |
+|---|---|---|
+| `web_fetch` | `ENABLE_WEB_FETCH=true` | Read a public web page as text (HTML becomes markdown-style text; long pages are paged with `offset`). Private and local addresses are blocked, including via redirects, unless listed in `WEB_ALLOWED_HOSTS`. |
+| `web_search` | `BRAVE_API_KEY` set | Top web results (title, URL, snippet) from the Brave Search API. |
 
 ### Optional: headless browser and command runner
 
@@ -132,15 +145,18 @@ Both are **off by default** (see `.env.example`).
 | Tool | Enabled by | Purpose |
 |---|---|---|
 | `browser_open`, `browser_screenshot`, `browser_text`, `browser_click`, `browser_type`, `browser_logs`, `browser_eval`, `browser_close` | `ENABLE_BROWSER=true` | Drive a headless Edge/Chrome (one tab per chat). Screenshots are returned as images **and** saved under `<workspace>/.screenshots/`. |
+| `curl` | on by default; `ENABLE_CURL=false` disables | Send an HTTP request (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, with headers and a text/JSON body) and get back the status, headers and body. Only `CURL_ALLOWED_HOSTS` can be called (default: localhost); redirects are off by default and re-checked per hop. |
 | `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_pull`, `git_push` | on by default; `ENABLE_GIT=false` disables | Run git in a workspace. No shell, never prompts for credentials, remotes must be configured names, pull is fast-forward only, and force-push is not available. |
-| `run_command`, `process_output`, `process_stop`, `list_processes` | `RUN_ALLOWED_COMMANDS` non-empty | Run allowlisted commands in a workspace root, optionally in the background (dev servers), with output capture. |
+| `run_command`, `process_output`, `process_wait`, `process_stop`, `list_processes` | on by default (`RUN_ALLOWED_COMMANDS` empty disables) | Run allowlisted commands in a workspace root, optionally in the background (dev servers), with output capture. |
 
 Typical flow: `run_command` `npm run dev` (background, `readyText`) -> `browser_open` the printed URL -> `browser_screenshot` -> `browser_logs` -> `process_stop`.
 
 Safety: the browser only loads hosts in `BROWSER_ALLOWED_HOSTS` (default localhost; every sub-request and redirect is checked, `file:` is refused).
 `run_command` only starts commands that begin with an allowlist entry, rejects quotes, pipes, `&`, `;`, `$`, `%` and redirects, runs without `MCP_API_KEY` in its environment,
-and each chat can only see and stop its own processes. Do not allowlist interpreters such as `node` or `powershell`. These tools give anyone holding the API key a way to run
-your project's scripts, so keep the key private and the allowlist small. Uses `playwright-core` against an installed browser; no browser download.
+and each chat can only see and stop its own processes. By default it accepts `dotnet`, `npm`, `npx`, `pnpm`, `yarn`, `node`, `python`, `python3`, `pip`, `cargo`, `go`, `make` and `curl`;
+set `RUN_ALLOWED_COMMANDS` to a narrower list (e.g. `dotnet build;dotnet test;npm test`), or to an empty value to switch the tools off. Never allowlist a shell (`powershell`, `cmd`, `bash`).
+Programs like `dotnet`, `node` and `python` can run arbitrary code, and `curl` run this way is not limited by `CURL_ALLOWED_HOSTS`, so anyone holding the API key can do what those programs can do in your
+workspaces. Keep the key private. Because quotes are rejected, arguments with spaces (such as `curl -H "A: b"`) cannot be passed; use the `curl` tool for those. Uses `playwright-core` against an installed browser; no browser download.
 
 ## HTTP endpoints
 

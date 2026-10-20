@@ -40,8 +40,21 @@ export const KNOWN_VARS: KnownVar[] = [
   // --- Git tools
   { key: 'ENABLE_GIT', default: 'true', description: 'git_* tools (status, diff, log, add, commit, branch, checkout, pull, push) in a workspace. On by default; set false to disable. Force-push is never allowed.' },
 
+  // --- curl tool
+  { key: 'ENABLE_CURL', default: 'true', description: 'curl tool: send HTTP requests (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS) to test API endpoints. On by default; set false to disable.' },
+  { key: 'CURL_ALLOWED_HOSTS', default: 'localhost;127.0.0.1;[::1]', description: "Hosts the curl tool may contact (';'-separated, *.example.com allowed). Default: localhost only. Redirects are re-checked against this list." },
+  { key: 'CURL_TIMEOUT_SECONDS', default: '30', description: 'Time limit for one curl request.' },
+
+  // --- web tools
+  { key: 'ENABLE_WEB_FETCH', default: 'false', description: 'web_fetch tool: read public web pages as text. Off by default because it can reach the internet; private and local addresses stay blocked unless listed in WEB_ALLOWED_HOSTS.' },
+  { key: 'WEB_ALLOWED_HOSTS', description: "Hosts web_fetch may reach even when they resolve to a private address (';'-separated, *.example.com allowed), e.g. an internal wiki." },
+  { key: 'WEB_TIMEOUT_SECONDS', default: '30', description: 'Time limit for one web_fetch or web_search request.' },
+  { key: 'BRAVE_API_KEY', secret: true, description: 'Brave Search API key. Setting it enables the web_search tool.' },
+  { key: 'WEB_SEARCH_URL', default: 'https://api.search.brave.com/res/v1/web/search', description: 'Brave-compatible search endpoint used by web_search.' },
+
   // --- run_command
-  { key: 'RUN_ALLOWED_COMMANDS', description: "SECURITY: commands Copilot may run, as prefixes separated by ';' (e.g. npm run dev;npm test). Empty = run_command disabled. Never list interpreters (node, python, powershell, cmd)." },
+  { key: 'RUN_ALLOWED_COMMANDS', default: 'dotnet;npm;npx;pnpm;yarn;node;python;python3;pip;cargo;go;make;curl', description: "SECURITY: commands Copilot may run, as prefixes separated by ';' (e.g. dotnet build;npm test). Programs like dotnet, node and python can run arbitrary code in the workspace. Set it to an empty value to disable run_command; never list shells (powershell, cmd, bash)." },
+  { key: 'RUN_ALLOW_APPROVAL', default: 'true', description: 'Let the agent run a command that is not on the allowlist after asking the user in chat (it passes userApproved=true). This is a convention the agent follows, not a check the server can verify; set false to enforce the allowlist strictly.' },
   { key: 'RUN_TIMEOUT_SECONDS', default: '120', description: 'Timeout for run_command.' },
   { key: 'MAX_BACKGROUND_PROCESSES', default: '3', description: 'Concurrent background processes.' },
   { key: 'MAX_PROCESS_OUTPUT_BYTES', default: '65536', description: 'Output kept per background process.' },
@@ -51,4 +64,4 @@ export const KNOWN_VARS: KnownVar[] = [
 ];
 
 /** Defaults the standalone launcher applies below config.env, .env and the real environment. */
-export const LAUNCHER_DEFAULTS: Record<string, string> = { ENABLE_BROWSER: 'true', ENABLE_GIT: 'true' };
+export const LAUNCHER_DEFAULTS: Record<string, string> = { ENABLE_BROWSER: 'true', ENABLE_GIT: 'true', ENABLE_CURL: 'true' };

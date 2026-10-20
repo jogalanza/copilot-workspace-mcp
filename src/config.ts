@@ -34,12 +34,35 @@ export interface AppConfig {
   browserIdleMinutes: number;
   /** Commands run_command may start: each entry is a command prefix like "npm run dev". Empty = run_command disabled. */
   runAllowedCommands: string[];
+  /** Let run_command accept a non-allowlisted command when the agent passes userApproved=true after asking the user. */
+  runAllowApproval: boolean;
   runTimeoutSeconds: number;
   maxBackgroundProcesses: number;
   maxProcessOutputBytes: number;
   /** git_* tools (runs the server's git in a workspace). On by default; ENABLE_GIT=false disables them. */
   enableGit: boolean;
+  /** curl tool (HTTP requests with any method). On by default; ENABLE_CURL=false disables it. */
+  enableCurl: boolean;
+  /** Hosts the curl tool may contact (exact, or "*.example.com"). Default: localhost only. */
+  curlAllowedHosts: string[];
+  curlTimeoutSeconds: number;
+  /** web_fetch tool (public web pages as text). Off by default: it can reach the internet. */
+  enableWebFetch: boolean;
+  /** Hosts web_fetch may reach even if they resolve to private addresses (exact, or "*.example.com"). */
+  webAllowedHosts: string[];
+  webTimeoutSeconds: number;
+  /** Brave Search API key; the web_search tool is enabled when it is set. */
+  braveApiKey?: string;
+  webSearchUrl: string;
 }
+
+/**
+ * Programs run_command accepts when RUN_ALLOWED_COMMANDS is not set: common build, test and HTTP tools.
+ * Shells (cmd, powershell, bash) are left out. Arguments still cannot contain quotes, pipes or other shell operators.
+ */
+export const DEFAULT_RUN_COMMANDS = [
+  'dotnet', 'npm', 'npx', 'pnpm', 'yarn', 'node', 'python', 'python3', 'pip', 'cargo', 'go', 'make', 'curl',
+];
 
 /** Split a list on ';' (and newlines). ';' is used instead of path.delimiter so
  *  the same .env works on Windows and POSIX (Windows paths contain ':'). */
@@ -113,10 +136,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       ? splitList(env.BROWSER_ALLOWED_HOSTS).map((h) => h.toLowerCase())
       : ['localhost', '127.0.0.1', '[::1]'],
     browserIdleMinutes: int(env.BROWSER_IDLE_MINUTES, 10, 'BROWSER_IDLE_MINUTES'),
-    runAllowedCommands: splitList(env.RUN_ALLOWED_COMMANDS),
+    runAllowApproval: env.RUN_ALLOW_APPROVAL !== 'false',
+    // Unset = the defaults below; set to an empty value to turn run_command off.
+    runAllowedCommands: env.RUN_ALLOWED_COMMANDS === undefined ? DEFAULT_RUN_COMMANDS : splitList(env.RUN_ALLOWED_COMMANDS),
     runTimeoutSeconds: int(env.RUN_TIMEOUT_SECONDS, 120, 'RUN_TIMEOUT_SECONDS'),
     maxBackgroundProcesses: int(env.MAX_BACKGROUND_PROCESSES, 3, 'MAX_BACKGROUND_PROCESSES'),
     maxProcessOutputBytes: int(env.MAX_PROCESS_OUTPUT_BYTES, 64 * 1024, 'MAX_PROCESS_OUTPUT_BYTES'),
     enableGit: env.ENABLE_GIT !== 'false',
+    enableCurl: env.ENABLE_CURL !== 'false',
+    curlAllowedHosts: env.CURL_ALLOWED_HOSTS
+      ? splitList(env.CURL_ALLOWED_HOSTS).map((h) => h.toLowerCase())
+      : ['localhost', '127.0.0.1', '[::1]'],
+    curlTimeoutSeconds: int(env.CURL_TIMEOUT_SECONDS, 30, 'CURL_TIMEOUT_SECONDS'),
+    enableWebFetch: env.ENABLE_WEB_FETCH === 'true',
+    webAllowedHosts: env.WEB_ALLOWED_HOSTS ? splitList(env.WEB_ALLOWED_HOSTS).map((h) => h.toLowerCase()) : [],
+    webTimeoutSeconds: int(env.WEB_TIMEOUT_SECONDS, 30, 'WEB_TIMEOUT_SECONDS'),
+    braveApiKey: env.BRAVE_API_KEY?.trim() || undefined,
+    webSearchUrl: env.WEB_SEARCH_URL?.trim() || 'https://api.search.brave.com/res/v1/web/search',
   };
 }

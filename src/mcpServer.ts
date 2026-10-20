@@ -7,7 +7,21 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AppConfig } from './config.js';
 import type { StateStore } from './db.js';
 import { activity } from './activity.js';
-import { assertUrlAllowed, type BrowserManager } from './browserManager.js';
+import { assertUrlAllowed, loopbackVariants, type BrowserManager } from './browserManager.js';
+import { CURL_METHODS, curl } from './curlTool.js';
+import {
+  MAX_TODOS,
+  TODO_STATUSES,
+  applyEdits,
+  editNotebook,
+  formatTodos,
+  grepFiles,
+  numberLines,
+  validateTodos,
+  type TextEdit,
+  type TodoItem,
+} from './fileTools.js';
+import { webFetch, webSearch } from './webTools.js';
 import { assertRef, assertRemote, git, gitPaths } from './gitTools.js';
 import type { ManagedProcess, ProcessManager } from './processManager.js';
 import { AccessError, assertSafeGlob, assertWritable, resolveInside, resolveUserPath, unquote } from './security.js';
@@ -55,6 +69,18 @@ function pickFilePath(args: { filePath?: string | null; path?: string | null; fi
   return p;
 }
 
+/** Write a file by renaming a temp file over it, so readers never see a half-written file. */
+async function atomicWrite(target: string, content: string) {
+  const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${crypto.randomBytes(6).toString('hex')}.tmp`);
+  try {
+    await fsp.writeFile(tmp, content, { encoding: 'utf8', flag: 'wx' });
+    await fsp.rename(tmp, target);
+  } catch (err) {
+    await fsp.rm(tmp, { force: true });
+    throw err;
+  }
+}
+
 const text = (t: string): ToolResult => ({ content: [{ type: 'text', text: t }] });
 const tag = (ws: ResolvedWorkspace) => `[workspace: ${ws.alias}]`;
 
@@ -64,7 +90,7 @@ export interface McpDeps {
   workspaces: WorkspaceService;
   /** Shared across requests (the MCP server itself is rebuilt per request). Set when ENABLE_BROWSER=true. */
   browser?: BrowserManager;
-  /** Shared across requests. Set when RUN_ALLOWED_COMMANDS is non-empty. */
+  /** Shared across requests. Set unless RUN_ALLOWED_COMMANDS is set to an empty list. */
   processes?: ProcessManager;
 }
 
@@ -229,6 +255,7 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
               'absolute folder of a registered workspace. Default "**/*". Spaces are fine; do not quote it.',
           ),
         maxResults: z.number().int().positive().nullish().describe(`Maximum entries (cap ${config.maxListResults}).`),
+        sortBy: z.enum(['name', 'modified']).nullish().describe('"name" (default) or "modified" (most recently changed first).'),
         ...selectorShape,
       },
     },
@@ -240,16 +267,21 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
         assertSafeGlob(pattern);
         audit.alias = ws.alias;
         const limit = Math.min(args.maxResults ?? config.maxListResults, config.maxListResults);
-        const files = (
-          await fg(pattern, {
-            cwd: ws.root,
-            dot: true,
-            onlyFiles: true,
-            followSymbolicLinks: false,
-            suppressErrors: true,
-            ignore: ['**/node_modules/**', '**/.git/**'],
-          })
-        ).sort();
+        const found = await fg(pattern, {
+          cwd: ws.root,
+          dot: true,
+          onlyFiles: true,
+          followSymbolicLinks: false,
+          suppressErrors: true,
+          stats: args.sortBy === 'modified',
+          ignore: ['**/node_modules/**', '**/.git/**'],
+        });
+        const files =
+          args.sortBy === 'modified'
+            ? (found as unknown as { path: string; stats?: { mtimeMs: number } }[])
+                .sort((a, b) => (b.stats?.mtimeMs ?? 0) - (a.stats?.mtimeMs ?? 0))
+                .map((e) => e.path)
+            : (found as string[]).sort();
         const shown = files.slice(0, limit);
         const note = files.length > limit ? `\n(showing ${limit} of ${files.length}; narrow the pattern)` : '';
         return `${tag(ws)} ${files.length} file(s)\n${shown.join('\n')}${note}`;
@@ -274,6 +306,9 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
               'registered workspace (it is routed to that workspace). Spaces are fine; do not quote or URL-encode.',
           ),
         ...filePathAliases,
+        offset: z.number().int().positive().nullish().describe('First line to return (1-based). Implies line numbers.'),
+        limit: z.number().int().positive().nullish().describe('Number of lines to return. Implies line numbers.'),
+        lineNumbers: z.boolean().nullish().describe('Prefix each line with its number (useful before ws_edit_file).'),
         ...selectorShape,
       },
     },
@@ -324,7 +359,9 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
           if (buf.subarray(0, 8192).includes(0)) return `${tag(ws)} ${rel} is a binary file (${stat.size} bytes).`;
           const truncated =
             stat.size > config.maxReadBytes ? `\n\n[truncated: showing ${size} of ${stat.size} bytes]` : '';
-          return `${tag(ws)} ${rel}\n${buf.toString('utf8')}${truncated}`;
+          let content = buf.toString('utf8');
+          if (args.offset || args.limit || args.lineNumbers) content = numberLines(content, args.offset ?? 1, args.limit ?? undefined);
+          return `${tag(ws)} ${rel}\n${content}${truncated}`;
         } finally {
           await fh.close();
         }
@@ -369,16 +406,198 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
         if (args.createDirs ?? true) await fsp.mkdir(dir, { recursive: true });
         // Re-check containment after creating folders (defends against races with links).
         await resolveInside(ws.root, rel);
-        const tmp = path.join(dir, `.${path.basename(target)}.${crypto.randomBytes(6).toString('hex')}.tmp`);
-        try {
-          await fsp.writeFile(tmp, args.content, { encoding: 'utf8', flag: 'wx' });
-          await fsp.rename(tmp, target);
-        } catch (err) {
-          await fsp.rm(tmp, { force: true });
-          throw err;
-        }
+        await atomicWrite(target, args.content);
         return `${tag(ws)} ${existing ? 'Updated' : 'Created'} ${rel} (${bytes} bytes).`;
       }),
+  );
+
+  /** Resolve an existing, writable text file for an in-place edit (ws_edit_file, notebook_edit). */
+  async function editableFile(args: WorkspaceSelector & { filePath?: string | null; path?: string | null; file?: string | null }) {
+    const routed = await workspaces.resolveForPath(ctx, args, pickFilePath(args));
+    const { target, relPath: rel } = await resolveUserPath(routed.ws.root, routed.relPath);
+    assertWritable(routed.ws.root, target, [config.stateDbPath]);
+    const stat = await fsp.stat(target).catch(() => undefined);
+    if (!stat) throw new AccessError(`File not found: ${rel} ${tag(routed.ws)}`);
+    if (!stat.isFile()) throw new AccessError(`Not a file: ${rel}`);
+    if (stat.size > config.maxWriteBytes) throw new AccessError(`File is ${stat.size} bytes; the edit limit is ${config.maxWriteBytes}.`);
+    const original = await fsp.readFile(target, 'utf8');
+    if (original.includes('\0')) throw new AccessError(`${rel} is a binary file.`);
+    return { ws: routed.ws, target, rel, original };
+  }
+
+  /** Save an edited file, refusing results over the write limit. */
+  async function saveEdited(f: { ws: ResolvedWorkspace; target: string; rel: string }, content: string) {
+    const bytes = Buffer.byteLength(content, 'utf8');
+    if (bytes > config.maxWriteBytes) throw new AccessError(`Result is ${bytes} bytes; the limit is ${config.maxWriteBytes}.`);
+    await resolveInside(f.ws.root, f.rel); // re-check containment right before writing
+    await atomicWrite(f.target, content);
+    return bytes;
+  }
+
+  const editShape = z.object({
+    oldString: z.string().describe('Exact text to replace, including whitespace. Must be unique in the file unless replaceAll is set.'),
+    newString: z.string().describe('Replacement text.'),
+    replaceAll: z.boolean().nullish().describe('Replace every occurrence instead of requiring a unique match.'),
+  });
+
+  server.registerTool(
+    'ws_edit_file',
+    {
+      title: 'Edit file',
+      description:
+        'Change part of an existing text file by exact string replacement, without resending the whole file. Prefer this ' +
+        'over ws_write_file for small changes. "oldString" must match exactly once (include enough surrounding lines to ' +
+        'make it unique) unless replaceAll=true. Pass several changes in "edits" to apply them in order, all or nothing. ' +
+        'Read the file first (ws_read_file) so oldString is copied exactly.',
+      inputSchema: {
+        filePath: z.string().nullish().describe('Required. Path relative to the workspace root, or absolute inside a registered workspace.'),
+        ...filePathAliases,
+        oldString: z.string().nullish().describe('Exact text to replace (single edit).'),
+        newString: z.string().nullish().describe('Replacement text (single edit).'),
+        replaceAll: z.boolean().nullish().describe('Replace every occurrence (single edit).'),
+        edits: z.array(editShape).max(50).nullish().describe('Several edits applied in order, all or nothing. Use instead of oldString/newString.'),
+        ...selectorShape,
+      },
+    },
+    async (args) =>
+      run('ws_edit_file', args, args.filePath ?? args.path ?? args.file ?? undefined, async (audit) => {
+        let edits: TextEdit[];
+        if (args.edits?.length) {
+          if (args.oldString != null || args.newString != null) throw new AccessError('Pass either "edits" or oldString/newString, not both.');
+          edits = args.edits;
+        } else {
+          if (args.oldString == null || args.newString == null) throw new AccessError('oldString and newString are required.');
+          edits = [{ oldString: args.oldString, newString: args.newString, replaceAll: args.replaceAll }];
+        }
+        const f = await editableFile(args);
+        audit.alias = f.ws.alias;
+        const { content, replacements } = applyEdits(f.original, edits);
+        const bytes = await saveEdited(f, content);
+        return `${tag(f.ws)} Edited ${f.rel}: ${replacements} replacement(s) (${bytes} bytes).`;
+      }),
+  );
+
+  server.registerTool(
+    'ws_grep',
+    {
+      title: 'Search file contents',
+      description:
+        'Search file contents in the workspace with a regular expression (JavaScript syntax). node_modules and .git are ' +
+        'skipped, as are binary and very large files. Output modes: "content" (default; file:line: text, optionally with ' +
+        'context lines), "files" (matching file names only) or "count" (matches per file). Narrow with "glob" ' +
+        '(e.g. "**/*.ts") and "path" (a sub-folder).',
+      inputSchema: {
+        pattern: z.string().describe('Regular expression, e.g. "function\\s+handle\\w+". Use \\\\ to match a literal backslash.'),
+        glob: z.string().nullish().describe('Only search files matching this glob, relative to "path", e.g. "**/*.{ts,tsx}".'),
+        path: z.string().nullish().describe('Sub-folder of the workspace to search. Default: the whole workspace.'),
+        ignoreCase: z.boolean().nullish().describe('Case-insensitive match.'),
+        multiline: z.boolean().nullish().describe('Let "." match newlines and patterns span lines.'),
+        context: z.number().int().min(0).max(10).nullish().describe('Lines of context around each match (content mode).'),
+        outputMode: z.enum(['content', 'files', 'count']).nullish().describe('Default "content".'),
+        maxResults: z.number().int().positive().nullish().describe(`Maximum output lines (cap ${config.maxListResults}).`),
+        ...selectorShape,
+      },
+    },
+    async (args) =>
+      run('ws_grep', args, args.path ?? args.glob ?? undefined, async (audit) => {
+        const ws = await workspaces.resolve(ctx, args);
+        audit.alias = ws.alias;
+        const sub = args.path && unquote(args.path) !== '.' ? await resolveUserPath(ws.root, args.path) : undefined;
+        const dir = sub?.target ?? (await fsp.realpath(ws.root));
+        if (sub && !(await fsp.stat(dir).catch(() => undefined))?.isDirectory()) throw new AccessError(`Not a folder: ${sub.relPath}`);
+        const glob = args.glob ? unquote(args.glob) : undefined;
+        if (glob) assertSafeGlob(glob);
+        const body = await grepFiles({
+          dir,
+          pattern: args.pattern,
+          glob,
+          ignoreCase: args.ignoreCase ?? false,
+          multiline: args.multiline ?? false,
+          context: args.context ?? 0,
+          mode: args.outputMode ?? 'content',
+          maxResults: Math.min(args.maxResults ?? 200, config.maxListResults),
+        });
+        return `${tag(ws)} ${body}`;
+      }),
+  );
+
+  server.registerTool(
+    'notebook_edit',
+    {
+      title: 'Edit Jupyter notebook cell',
+      description:
+        'Replace, insert or delete one cell of a Jupyter notebook (.ipynb). Cells are numbered from 0 (read the notebook ' +
+        'with ws_read_file to see them). mode "replace" sets the cell source (and clears a code cell\'s output); "insert" ' +
+        'adds a new cell after cellIndex (or at the top when omitted); "delete" removes the cell.',
+      inputSchema: {
+        filePath: z.string().nullish().describe('Required. Path to the .ipynb file.'),
+        ...filePathAliases,
+        mode: z.enum(['replace', 'insert', 'delete']).describe('What to do with the cell.'),
+        cellIndex: z.number().int().min(0).nullish().describe('0-based cell number.'),
+        cellId: z.string().nullish().describe('Cell id, as an alternative to cellIndex.'),
+        source: z.string().nullish().describe('New cell source (replace and insert).'),
+        cellType: z.enum(['code', 'markdown']).nullish().describe('Cell type. Default: unchanged on replace, "code" on insert.'),
+        ...selectorShape,
+      },
+    },
+    async (args) =>
+      run('notebook_edit', args, args.filePath ?? args.path ?? args.file ?? undefined, async (audit) => {
+        const f = await editableFile(args);
+        audit.alias = f.ws.alias;
+        if (!/\.ipynb$/i.test(f.rel)) throw new AccessError('notebook_edit only edits .ipynb files.');
+        const r = editNotebook(f.original, {
+          mode: args.mode,
+          cellIndex: args.cellIndex,
+          cellId: args.cellId,
+          source: args.source,
+          cellType: args.cellType,
+        });
+        await saveEdited(f, r.json);
+        return `${tag(f.ws)} ${f.rel}: ${r.message}`;
+      }),
+  );
+
+  const todoKey = (sel: WorkspaceSelector) => `todos:${ownerKey(sel)}`;
+  const readTodos = (sel: WorkspaceSelector): TodoItem[] => {
+    try {
+      return JSON.parse(store.getSetting(todoKey(sel)) ?? '[]') as TodoItem[];
+    } catch {
+      return [];
+    }
+  };
+
+  server.registerTool(
+    'todo_write',
+    {
+      title: 'Write to-do list',
+      description:
+        'Keep a task list for this chat while working through a multi-step job. Each call REPLACES the whole list, so ' +
+        'send every item with its current status ("pending", "in_progress" or "completed"). At most one item may be ' +
+        'in_progress. Mark items completed as soon as they are done.',
+      inputSchema: {
+        todos: z
+          .array(z.object({ content: z.string().describe('What needs doing, in imperative form.'), status: z.enum(TODO_STATUSES) }))
+          .max(MAX_TODOS)
+          .describe('The complete list.'),
+        ...selectorShape,
+      },
+    },
+    async (args) =>
+      run('todo_write', args, undefined, async () => {
+        const todos = validateTodos(args.todos);
+        store.setSetting(todoKey(args), JSON.stringify(todos));
+        return formatTodos(todos);
+      }),
+  );
+
+  server.registerTool(
+    'todo_read',
+    {
+      title: 'Read to-do list',
+      description: 'Show the current to-do list for this chat (see todo_write).',
+      inputSchema: { ...selectorShape },
+    },
+    async (args) => run('todo_read', args, undefined, async () => formatTodos(readTodos(args))),
   );
 
   /** Chats share one browser tab / process list per conversation id (or one shared bucket without it). */
@@ -411,8 +630,41 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
         run('browser_open', args, args.url, async () => {
           const url = assertUrlAllowed(args.url, bm.allowedHosts);
           const p = await page(args);
-          const resp = await p.goto(url.href, { waitUntil: args.waitUntil ?? 'load' });
-          return `Opened (HTTP ${resp?.status() ?? 'n/a'})\n${await state(p)}`;
+          const waitUntil = args.waitUntil ?? 'load';
+          let resp;
+          let note = '';
+          try {
+            resp = await p.goto(url.href, { waitUntil });
+          } catch (err) {
+            if (!/ERR_CONNECTION_REFUSED/.test((err as Error).message)) throw err;
+            // Nothing answered on this address: try the other loopback spellings (IPv4 vs IPv6) before giving up.
+            for (const alt of loopbackVariants(url)) {
+              try {
+                assertUrlAllowed(alt.href, bm.allowedHosts);
+                // Chrome swaps in its error page asynchronously, which makes the next navigation report "interrupted".
+                await p.goto('about:blank').catch(() => undefined);
+                for (let tries = 0; !resp; tries++) {
+                  try {
+                    resp = await p.goto(alt.href, { waitUntil });
+                  } catch (e) {
+                    if (tries >= 2 || !/interrupted by another navigation/.test((e as Error).message)) throw e;
+                    await new Promise((r) => setTimeout(r, 150));
+                  }
+                }
+                note = `\n(${url.host} refused the connection, but ${alt.host} answered (the server listens on a different loopback address, IPv4 vs IPv6). Use ${alt.host} for later calls.)`;
+                break;
+              } catch {
+                /* try the next spelling */
+              }
+            }
+            if (!resp) {
+              throw new AccessError(
+                `Connection refused at ${url.origin}: nothing is listening on that port${loopbackVariants(url).length ? ' (localhost, 127.0.0.1 and [::1] were all tried)' : ''}. ` +
+                  'Start the app first (run_command with background=true and readyText), check process_output for a crash or the real port, then call browser_open again.',
+              );
+            }
+          }
+          return `Opened (HTTP ${resp?.status() ?? 'n/a'})\n${await state(p)}${note}`;
         }),
     );
 
@@ -601,6 +853,13 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
         inputSchema: {
           command: z.string().describe('Command line, e.g. "npm run dev -- --port 5173".'),
           background: z.boolean().nullish().describe('Keep running after the call returns. Default false.'),
+          userApproved: z
+            .boolean()
+            .nullish()
+            .describe(
+              'Set true ONLY after the user has explicitly agreed, in this chat, to run this exact command that is not on the ' +
+                'allowlist (or is risky). Never set it without asking first.',
+            ),
           readyText: z.string().nullish().describe('Background only: return as soon as this text appears, e.g. "Local:".'),
           timeoutSeconds: z
             .number()
@@ -615,7 +874,7 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
         run('run_command', args, args.command, async (audit) => {
           const ws = await workspaces.resolve(ctx, args);
           audit.alias = ws.alias;
-          const proc = pm.start(ownerKey(args), ws.alias, await fsp.realpath(ws.root), args.command);
+          const proc = pm.start(ownerKey(args), ws.alias, await fsp.realpath(ws.root), args.command, args.userApproved ?? false);
           if (args.background) {
             const how = await pm.waitFor(proc, Math.min(args.timeoutSeconds ?? 5, 60) * 1000, args.readyText ?? undefined);
             return `${tag(ws)} started in background (${how})\n${fmt(proc)}`;
@@ -644,6 +903,32 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
         run('process_output', args, undefined, async () =>
           fmt(pm.get(ownerKey(args), args.id), Math.min(args.tailChars ?? 4000, config.maxProcessOutputBytes)),
         ),
+    );
+
+    server.registerTool(
+      'process_wait',
+      {
+        title: 'Wait for process',
+        description:
+          'Block until a process started by run_command exits, or until "untilText" appears in its output, or the time ' +
+          'limit passes; then return its status and latest output. Use it to wait for a build, test run or server to be ready ' +
+          'instead of polling process_output. The process keeps running on timeout.',
+        inputSchema: {
+          id: z.string().describe('Process id returned by run_command.'),
+          untilText: z.string().nullish().describe('Return as soon as this text appears in the output, e.g. "Local:" or "Compiled".'),
+          timeoutSeconds: z.number().int().positive().nullish().describe(`Maximum wait (cap ${config.runTimeoutSeconds}, default 30).`),
+          tailChars: z.number().int().positive().nullish().describe('Trailing output characters to return. Default 4000.'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        run('process_wait', args, undefined, async () => {
+          const proc = pm.get(ownerKey(args), args.id);
+          const limit = Math.min(args.timeoutSeconds ?? 30, config.runTimeoutSeconds);
+          const how = await pm.waitFor(proc, limit * 1000, args.untilText ?? undefined);
+          const verdict = how === 'timeout' ? `still running after ${limit}s` : how === 'ready' ? `"${args.untilText}" appeared` : 'process exited';
+          return `${verdict}\n${fmt(proc, Math.min(args.tailChars ?? 4000, config.maxProcessOutputBytes))}`;
+        }),
     );
 
     server.registerTool(
@@ -885,6 +1170,117 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
           }
           return ['push', ...(args.setUpstream ? ['-u'] : []), remote, branch];
         }),
+    );
+  }
+
+  if (config.enableCurl) {
+    server.registerTool(
+      'curl',
+      {
+        title: 'HTTP request (curl)',
+        description:
+          'Send an HTTP request to test an API endpoint, like curl -i. Supports GET, POST, PUT, PATCH, DELETE, HEAD and ' +
+          'OPTIONS with custom headers and a text body. Returns the status line, response headers and body (JSON is ' +
+          `pretty-printed). Only hosts the server admin allowed (${config.curlAllowedHosts.join(', ')}) can be called; ` +
+          'use run_command with background=true to start the API first.',
+        inputSchema: {
+          url: z.string().describe('Full http(s) URL, e.g. "http://localhost:3000/api/users?limit=5".'),
+          method: z.enum(CURL_METHODS).nullish().describe('HTTP method. Default GET.'),
+          headers: z
+            .record(z.string(), z.string())
+            .nullish()
+            .describe('Request headers, e.g. {"Authorization": "Bearer ...", "Accept": "application/json"}.'),
+          body: z.string().nullish().describe('Request body text. For JSON pass the JSON string and set Content-Type.'),
+          json: z
+            .unknown()
+            .optional()
+            .describe('Alternative to body: a JSON value that is serialized and sent with Content-Type application/json.'),
+          followRedirects: z.boolean().nullish().describe('Follow redirects (each hop must be an allowed host). Default false.'),
+          timeoutSeconds: z.number().int().positive().nullish().describe(`Time limit (cap ${config.curlTimeoutSeconds}).`),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        run('curl', args, args.url, async () => {
+          const headers = { ...(args.headers ?? {}) };
+          let body = args.body ?? undefined;
+          if (args.json !== undefined && args.json !== null) {
+            if (body !== undefined) throw new AccessError('Pass either "body" or "json", not both.');
+            body = JSON.stringify(args.json);
+            if (!Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) {
+              headers['Content-Type'] = 'application/json';
+            }
+          }
+          const limit = Math.min(args.timeoutSeconds ?? config.curlTimeoutSeconds, config.curlTimeoutSeconds);
+          return curl({
+            url: args.url,
+            method: args.method ?? 'GET',
+            headers,
+            body,
+            timeoutMs: limit * 1000,
+            allowedHosts: config.curlAllowedHosts,
+            followRedirects: args.followRedirects ?? false,
+          });
+        }),
+    );
+  }
+
+  if (config.enableWebFetch) {
+    server.registerTool(
+      'web_fetch',
+      {
+        title: 'Fetch web page',
+        description:
+          'Download a public web page (or JSON/text URL) and return it as readable text: HTML is converted to markdown-style ' +
+          'text with headings, links and lists. Use it to read documentation or an article given its URL. Local and private ' +
+          'network addresses are blocked. Long pages are cut; pass "offset" to read on.',
+        inputSchema: {
+          url: z.string().describe('Full http(s) URL, e.g. "https://example.com/docs/page".'),
+          offset: z.number().int().min(0).nullish().describe('Character offset to continue a long page.'),
+          maxChars: z.number().int().positive().nullish().describe('Characters to return (default 50000, max 100000).'),
+          raw: z.boolean().nullish().describe('Return HTML source as received instead of converting it.'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        run('web_fetch', args, args.url, async () =>
+          webFetch({
+            url: args.url,
+            timeoutMs: config.webTimeoutSeconds * 1000,
+            trustedHosts: config.webAllowedHosts,
+            offset: args.offset ?? undefined,
+            maxChars: Math.min(args.maxChars ?? 50_000, 100_000),
+            raw: args.raw ?? false,
+          }),
+        ),
+    );
+  }
+
+  if (config.braveApiKey) {
+    const apiKey = config.braveApiKey;
+    server.registerTool(
+      'web_search',
+      {
+        title: 'Search the web',
+        description:
+          'Search the web and return the top results (title, URL, snippet). Follow up with web_fetch to read a result. ' +
+          'Use it for current information or documentation you do not already know.',
+        inputSchema: {
+          query: z.string().describe('Search query.'),
+          count: z.number().int().min(1).max(20).nullish().describe('Number of results (default 8).'),
+          ...selectorShape,
+        },
+      },
+      async (args) =>
+        run('web_search', args, args.query, async () =>
+          webSearch({
+            query: args.query,
+            endpoint: config.webSearchUrl,
+            apiKey,
+            count: args.count ?? 8,
+            timeoutMs: config.webTimeoutSeconds * 1000,
+          }),
+        ),
     );
   }
 

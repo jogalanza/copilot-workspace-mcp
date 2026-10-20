@@ -38,6 +38,22 @@ export function assertUrlAllowed(rawUrl: string, allowed: string[]): URL {
   return url;
 }
 
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+
+/**
+ * Other spellings of the same loopback address. A dev server bound to IPv6 only (Node and Vite resolve
+ * "localhost" to ::1 on many machines) refuses "127.0.0.1", and an IPv4-only one refuses "[::1]", so a
+ * refused connection is retried on the other spellings. Empty for non-loopback hosts.
+ */
+export function loopbackVariants(url: URL): URL[] {
+  if (!LOOPBACK_HOSTS.includes(url.hostname)) return [];
+  return LOOPBACK_HOSTS.filter((h) => h !== url.hostname).map((h) => {
+    const u = new URL(url.href);
+    u.hostname = h;
+    return u;
+  });
+}
+
 export interface BrowserSession {
   context: BrowserContext;
   page: Page;
