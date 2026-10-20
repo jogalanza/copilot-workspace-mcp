@@ -23,8 +23,6 @@ export interface ConfigVar {
   description: string;
   /** Value used when the variable is not set. */
   default?: string;
-  /** Set when a .env file or the real environment overrides config.env for this key. */
-  overriddenBy?: string;
 }
 
 export interface ConfigChange {

@@ -58,7 +58,8 @@ protects `/mcp`). Set `TUNNEL_ALLOW_ANONYMOUS=false` to restrict it to your own 
 
 The console shows only errors and important lines (add `--verbose` for all dev tunnel output). Other flags:
 `--reconfigure`, `--new-key`, `--show-key`, `--no-tunnel`, `--no-ui`, `--no-open`, `--help`. Any variable from `.env.example` can be
-set in `config.env`, in a `.env` in the folder you start it from, or in the environment (later wins).
+set in a `.env` in the folder you start it from, in the environment, or in `config.env` (later wins; settings saved
+from the web UI go to `config.env`, so they override the other two).
 
 ### Build it yourself
 

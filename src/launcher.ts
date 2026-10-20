@@ -288,8 +288,8 @@ async function main() {
   const ensured = await ensureConfig();
   let saved = ensured.saved;
   const keyIsNew = ensured.keyIsNew;
-  // Precedence: config.env < ./.env < real environment.
-  const computeEnv = (cfg: Record<string, string>) => ({ ...LAUNCHER_DEFAULTS, ...cfg, ...readEnvFile(path.resolve('.env')), ...baseEnv });
+  // Precedence: ./.env < real environment < config.env (settings saved from the UI).
+  const computeEnv = (cfg: Record<string, string>) => ({ ...LAUNCHER_DEFAULTS, ...readEnvFile(path.resolve('.env')), ...baseEnv, ...cfg });
   let appliedKeys = new Set<string>();
   const applyEnv = (env: Record<string, string>) => {
     for (const k of appliedKeys) if (!(k in env)) delete process.env[k];
@@ -336,7 +336,6 @@ async function main() {
   });
 
   const getConfig = (reveal: boolean) => {
-    const dotenv = readEnvFile(path.resolve('.env'));
     const known = new Map(KNOWN_VARS.map((v) => [v.key, v]));
     const keys = [...KNOWN_VARS.map((v) => v.key), ...Object.keys(saved).filter((k) => !known.has(k))];
     return {
@@ -351,7 +350,6 @@ async function main() {
           secret,
           description: k?.description ?? 'Custom variable.',
           default: k?.default,
-          overriddenBy: key in baseEnv ? 'the environment' : key in dotenv ? 'a .env file in the working folder' : undefined,
         };
       }),
     };
