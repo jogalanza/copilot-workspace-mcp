@@ -189,6 +189,7 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
   server.registerTool(
     'list_files',
     {
+      title: 'List files',
       description:
         'List files in the current workspace matching a glob pattern (node_modules and .git are excluded). ' +
         'Paths are relative to the workspace root.',
@@ -231,7 +232,12 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
   server.registerTool(
     'ws_read_file',
     {
-      description: 'Read a UTF-8 text file from the current workspace.',
+      title: 'Read file',
+      description:
+        'Read a UTF-8 text file from a registered code workspace. Use this instead of any built-in file reader. ' +
+        'Pass "filePath" relative to the workspace root (or an absolute path inside a registered workspace) and, ' +
+        'if the client has no conversation id, pass the "workspace" alias returned by switch_workspace. ' +
+        'Large files are truncated; binary files are reported, not returned. Use list_files first if unsure of the path.',
       inputSchema: {
         filePath: z
           .string()
@@ -301,9 +307,12 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
   server.registerTool(
     'ws_write_file',
     {
+      title: 'Write file',
       description:
-        'Create or overwrite a text file in the current workspace (atomic write). Writing inside .git or ' +
-        'node_modules is not allowed.',
+        'Create or overwrite a UTF-8 text file in a registered code workspace (atomic write). Use this instead of ' +
+        'any built-in file writer. Pass "filePath" relative to the workspace root, the full new "content", and, if ' +
+        'the client has no conversation id, the "workspace" alias returned by switch_workspace. Missing parent ' +
+        'folders are created by default. Writing inside .git or node_modules is not allowed.',
       inputSchema: {
         filePath: z
           .string()
