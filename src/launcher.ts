@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
+import { activity } from './activity.js';
 import { loadConfig } from './config.js';
 import { KNOWN_VARS, LAUNCHER_DEFAULTS } from './envVars.js';
 import { LogBus, type LogLevel } from './logBus.js';
@@ -220,7 +221,7 @@ let restartRequested = false;
 let retryTimer: NodeJS.Timeout | undefined;
 
 function hostTunnel(dt: string, id: string, getPort: () => number, onUrl: (url: string) => void, attempt = 0) {
-  tunnelState = attempt || restartRequested ? 'restarting' : 'starting';
+  setTunnel(attempt || restartRequested ? 'restarting' : 'starting');
   const proc = spawn(dt, ['host', id], { windowsHide: true });
   child = proc;
   let started = Date.now();
@@ -232,7 +233,7 @@ function hostTunnel(dt: string, id: string, getPort: () => number, onUrl: (url: 
       if (url && !url.includes(`-${getPort()}.`)) continue; // URL of a different port: not ours
       if (url) {
         started = Date.now();
-        tunnelState = 'running';
+        setTunnel('running');
         publicUrl = url;
         onUrl(url);
         continue;
@@ -241,6 +242,36 @@ function hostTunnel(dt: string, id: string, getPort: () => number, onUrl: (url: 
       // The web UI gets every line (noise at "debug"); the console only the important ones.
       bus.add('tunnel', important ? LogBus.guessLevel(line) : 'debug', line);
       if (verbose || important) rawErr(`${stamp()} [tunnel] ${line}`);
+// Tunnel health: how long it has been up, how often it dropped, and when it last restarted.
+let tunnelSince = startedAt;
+let tunnelTracking: number | undefined;
+let tunnelUpMs = 0;
+let tunnelRestarts = 0;
+let tunnelLastRestart: number | undefined;
+
+function setTunnel(next: UiState['tunnel']) {
+  const now = Date.now();
+  tunnelTracking ??= now;
+  if (tunnelState === 'running') tunnelUpMs += now - tunnelSince;
+  if (next === 'restarting' && tunnelState === 'running') {
+    tunnelRestarts++;
+    tunnelLastRestart = now;
+  }
+  if (next !== tunnelState) tunnelSince = now;
+  tunnelState = next;
+}
+
+function tunnelHealth(): Pick<UiState, 'tunnelUptimePct' | 'tunnelRestarts' | 'tunnelLastRestart' | 'tunnelSince'> {
+  const now = Date.now();
+  const up = tunnelUpMs + (tunnelState === 'running' ? now - tunnelSince : 0);
+  const span = tunnelTracking === undefined ? 0 : now - tunnelTracking;
+  return {
+    tunnelUptimePct: span > 0 ? Math.min(100, (up / span) * 100) : undefined,
+    tunnelRestarts,
+    tunnelLastRestart,
+    tunnelSince,
+  };
+}
     }
   };
   proc.stdout.on('data', onData);
@@ -248,7 +279,7 @@ function hostTunnel(dt: string, id: string, getPort: () => number, onUrl: (url: 
   proc.on('error', (e) => log(`cannot run devtunnel: ${e.message}`, 'error'));
   proc.on('exit', (code) => {
     if (stopping) return;
-    tunnelState = 'restarting';
+    setTunnel('restarting');
     // A tunnel that ran for a while (or was restarted on purpose) resets the backoff.
     const next = restartRequested || Date.now() - started > 60_000 ? 0 : attempt + 1;
     const delay = restartRequested ? 1 : Math.min(30, 2 ** next);
@@ -341,6 +372,7 @@ async function main() {
     return {
       file: CONFIG_FILE,
       vars: keys.map((key) => {
+  activity.persistTo(path.join(configDir(), 'history.json')); // hourly totals for the busiest-hours heatmap
         const k = known.get(key);
         const secret = !!k?.secret;
         return {
@@ -356,6 +388,7 @@ async function main() {
   };
   const saveConfig = async (change: ConfigChange) => {
     const next = { ...saved };
+    activity.flush();
     for (const [k, v] of Object.entries(change.set ?? {})) {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) || /[\r\n]/.test(String(v))) return { ok: false, error: `Invalid variable: ${k}` };
       next[k] = String(v);
@@ -413,7 +446,7 @@ async function main() {
           bus,
           getConfig,
           saveConfig,
-          getState: () => ({ version: SERVER_VERSION, mcpPort: port, startedAt, publicUrl, tunnel: tunnelState }),
+          getState: () => ({ version: SERVER_VERSION, mcpPort: port, startedAt, publicUrl, tunnel: tunnelState, ...tunnelHealth() }),
           restartTunnel: () => {
             if (!child || stopping) return;
             log('Restarting tunnel (requested from the UI)...');

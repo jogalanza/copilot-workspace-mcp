@@ -11,6 +11,13 @@ export interface UiState {
   startedAt: number;
   publicUrl?: string;
   tunnel: 'disabled' | 'starting' | 'running' | 'restarting' | 'stopped';
+  /** Share of the time since the tunnel first started that it was running (0..100). */
+  tunnelUptimePct?: number;
+  /** Times a running tunnel dropped or was restarted, and when it last did. */
+  tunnelRestarts?: number;
+  tunnelLastRestart?: number;
+  /** When the tunnel entered its current state. */
+  tunnelSince?: number;
 }
 
 export interface ConfigVar {

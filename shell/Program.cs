@@ -51,7 +51,9 @@ namespace CopilotShell
         const int HTCAPTION = 2, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13,
             HTTOPRIGHT = 14, HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
         const int WS_THICKFRAME = 0x00040000, WS_MINIMIZEBOX = 0x00020000, WS_MAXIMIZEBOX = 0x00010000;
-        static readonly Color Bg = Color.FromArgb(10, 10, 11);
+        const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20, DWMWA_BORDER_COLOR = 34;
+        static readonly Color Bg = Color.FromArgb(10, 10, 11);          // --color-ink
+        static readonly Color Border = Color.Black;
         const int Grip = 6;        // edge width that resizes
         const int CornerGrip = 14;
 
@@ -70,6 +72,7 @@ namespace CopilotShell
             this.parentPid = parentPid;
 
             Text = "Copilot Workspace MCP";
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { /* keep the default icon */ }
             FormBorderStyle = FormBorderStyle.None;
             BackColor = Bg;
             StartPosition = FormStartPosition.CenterScreen;
@@ -167,6 +170,12 @@ namespace CopilotShell
             base.OnHandleCreated(e);
             var m = new Margins { Left = 1, Right = 1, Top = 1, Bottom = 1 }; // gives the borderless window its drop shadow
             DwmExtendFrameIntoClientArea(Handle, ref m);
+
+            // Windows 11: a black window outline instead of the system grey. Older Windows ignores these attributes.
+            int border = Border.R | (Border.G << 8) | (Border.B << 16); // COLORREF is 0x00BBGGRR
+            DwmSetWindowAttribute(Handle, DWMWA_BORDER_COLOR, ref border, sizeof(int));
+            int dark = 1;
+            DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
         }
 
         protected override void OnResize(EventArgs e)
@@ -251,5 +260,6 @@ namespace CopilotShell
         [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
         [DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr hWnd, ref Margins margins);
+        [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hWnd, int attr, ref int value, int size);
     }
 }

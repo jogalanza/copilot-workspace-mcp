@@ -22,6 +22,11 @@
   --color-route: #2aa7ff;
   --color-warn: #f5a623;
   --color-stop: #e31937;
+  --animate-glow: glow 3s ease-in-out infinite;
+  @keyframes glow {
+    0%, 100% { filter: drop-shadow(0 0 2px currentColor); }
+    50% { filter: drop-shadow(0 0 7px currentColor) drop-shadow(0 0 2px currentColor); }
+  }
 }
 
 @layer base {
@@ -38,8 +43,10 @@
     background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgb(0 0 0 / .6) 100%);
   }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-thumb { background: rgb(255 255 255 / .18); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb { background: rgb(255 255 255 / .08); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(255 255 255 / .16); background-clip: content-box; }
   ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-corner { background: #000; }
 }
 
 @layer components {

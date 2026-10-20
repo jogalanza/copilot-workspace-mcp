@@ -100,3 +100,35 @@ describe('activity stats', () => {
     assert.equal(snap.tools.find((t) => t.name === 'stat_fast')!.avgMs, 10);
   });
 });
+
+describe('activity analytics', () => {
+  it('classifies failures, and tracks bytes, latency samples, chats, hours and policy blocks', async () => {
+    const { classifyError } = await import('../src/activity.js');
+    assert.equal(classifyError('curl timed out after 30s', false), 'timeout');
+    assert.equal(classifyError('Host "evil.com" is not allowed', true), 'blocked');
+    assert.equal(classifyError('run_command is disabled: RUN_ALLOWED_COMMANDS is empty.', true), 'blocked');
+    assert.equal(classifyError('File not found', true), 'rejected');
+    assert.equal(classifyError('git_push failed: boom', false), 'failed');
+
+    const mk = (name: string, conversation: string, args: unknown) =>
+      activity.recordBody({ method: 'tools/call', params: { name, arguments: args } }, { conversation, client: 'unit-test/1.0' });
+    await activity.track(mk('an_ok', 'chat-A', { a: 'xyz' }), async () => activity.complete('an_ok', { ok: true, ms: 40, outBytes: 500 }));
+    await activity.track(mk('an_blocked', 'chat-A', {}), async () =>
+      activity.complete('an_blocked', { ok: false, ms: 1, error: 'Path is outside the workspace', accessError: true, outBytes: 30 }),
+    );
+    const calls = mk('an_dropped', 'chat-B', {});
+    activity.abandon(calls);
+
+    const snap = activity.statsSnapshot();
+    const b = snap.buckets[snap.buckets.length - 1]!;
+    assert.ok(b.outB >= 530 && b.inB > 0);
+    assert.ok(b.lat.includes(40));
+    assert.ok((b.kinds.blocked ?? 0) >= 1 && (b.kinds.invalid ?? 0) >= 1);
+    assert.equal(snap.tools.find((t) => t.name === 'an_ok')!.outB, 500);
+    const chatA = snap.chats.find((c) => c.id === 'chat-A')!;
+    assert.equal(chatA.calls, 2);
+    assert.equal(chatA.errors, 1);
+    assert.equal(snap.blocked.find((x) => x.tool === 'an_blocked')!.count, 1);
+    assert.ok(snap.hours.reduce((n, h) => n + h.calls, 0) >= 3);
+  });
+});

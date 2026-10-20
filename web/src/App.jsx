@@ -18,7 +18,7 @@ const shell = window.chrome?.webview ? (m) => window.chrome.webview.postMessage(
 export default function App() {
   const [entries, setEntries] = useState([]);
   const [activity, setActivity] = useState({ count: 0 });
-  const [stats, setStats] = useState({ buckets: [], tools: [] });
+  const [stats, setStats] = useState({ buckets: [], tools: [], hours: [], chats: [], blocked: [] });
   const [state, setState] = useState(null);
   const [offline, setOffline] = useState(false);
   const [ripples, setRipples] = useState([]);
@@ -94,7 +94,7 @@ export default function App() {
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
             <LogPanel entries={entries} onClear={() => post('/api/clear')} />
-            <ToolActivity stats={stats} />
+            <ToolActivity stats={stats} state={state} />
           </div>
         </div>
       </div>

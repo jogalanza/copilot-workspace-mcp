@@ -115,7 +115,9 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
     try {
       key = workspaces.conversationKey(ctx, sel);
       const out = await fn(audit);
-      activity.complete(tool, { ok: true, ms: Date.now() - started, workspace: audit.alias ?? sel.workspace ?? undefined });
+      const outBytes =
+        typeof out === 'string' ? Buffer.byteLength(out) : Buffer.byteLength(out.text) + out.images.reduce((n, i) => n + i.data.length, 0);
+      activity.complete(tool, { ok: true, ms: Date.now() - started, workspace: audit.alias ?? sel.workspace ?? undefined, outBytes });
       store.audit({ conversationKey: key, tool, alias: audit.alias ?? sel.workspace, relPath, ok: true });
       if (typeof out === 'string') return text(out);
       return {
@@ -131,6 +133,8 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
         ms: Date.now() - started,
         workspace: audit.alias ?? sel.workspace ?? undefined,
         error: message,
+        accessError: err instanceof AccessError,
+        outBytes: Buffer.byteLength(message),
       });
       try {
         store.audit({ conversationKey: key, tool, alias: audit.alias ?? sel.workspace, relPath, ok: false, error: message });
