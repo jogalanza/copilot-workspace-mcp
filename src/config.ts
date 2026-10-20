@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { cleanAbsolutePath, unquote } from './security.js';
 
 export interface AppConfig {
   port: number;
@@ -21,6 +22,8 @@ export interface AppConfig {
   maxReadBytes: number;
   maxListResults: number;
   enableStdio: boolean;
+  /** MCP_TRACE=true: append every /mcp request + response to this file (next to the state DB). */
+  traceFile: string | undefined;
 }
 
 /** Split a list on ';' (and newlines). ';' is used instead of path.delimiter so
@@ -28,17 +31,24 @@ export interface AppConfig {
 function splitList(value: string | undefined): string[] {
   return (value ?? '')
     .split(/[;\n]/)
-    .map((s) => s.trim())
+    .map(unquote)
     .filter(Boolean);
 }
 
-/** WORKSPACES="api=D:/Repos/Api;web=D:/Repos/Web" */
+/** Absolute path from config: tolerates quotes ("D:/Red Files/x") and file:// URLs (D:/Red%20Files). */
+export function configPath(value: string): string {
+  return path.resolve(cleanAbsolutePath(value));
+}
+
+/** WORKSPACES="api=D:/Repos/Api;web=D:/Red Files/Web"  (alias="D:/Red Files/Web" also accepted) */
 export function parseWorkspaceList(value: string | undefined): Map<string, string> {
   const map = new Map<string, string>();
   for (const entry of splitList(value)) {
     const eq = entry.indexOf('=');
     if (eq <= 0) throw new Error(`Invalid WORKSPACES entry "${entry}" (expected alias=path)`);
-    map.set(entry.slice(0, eq).trim(), path.resolve(entry.slice(eq + 1).trim()));
+    const folder = unquote(entry.slice(eq + 1));
+    if (!folder) throw new Error(`Invalid WORKSPACES entry "${entry}" (empty path)`);
+    map.set(unquote(entry.slice(0, eq)), configPath(folder));
   }
   return map;
 }
@@ -61,15 +71,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const seedWorkspaces = parseWorkspaceList(env.WORKSPACES);
   // Backward compatibility: WORKSPACE_ROOT registers a single workspace.
   if (env.WORKSPACE_ROOT && seedWorkspaces.size === 0) {
-    const root = path.resolve(env.WORKSPACE_ROOT);
+    const root = configPath(env.WORKSPACE_ROOT);
     seedWorkspaces.set(path.basename(root).replace(/[^A-Za-z0-9._-]/g, '-') || 'default', root);
   }
   return {
     port: int(env.PORT, 8790, 'PORT'),
     apiKey: env.MCP_API_KEY || undefined,
     allowAnonymous: env.MCP_ALLOW_ANONYMOUS === 'true',
-    stateDbPath: path.resolve(env.STATE_DB || path.join(defaultStateDir(), 'state.db')),
-    allowedRoots: splitList(env.ALLOWED_ROOTS).map((p) => path.resolve(p)),
+    stateDbPath: configPath(env.STATE_DB || path.join(defaultStateDir(), 'state.db')),
+    allowedRoots: splitList(env.ALLOWED_ROOTS).map(configPath),
     seedWorkspaces,
     defaultWorkspace: env.DEFAULT_WORKSPACE || undefined,
     bindingTtlDays: int(env.BINDING_TTL_DAYS, 30, 'BINDING_TTL_DAYS'),
@@ -77,5 +87,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     maxReadBytes: int(env.MAX_READ_BYTES, 1024 * 1024, 'MAX_READ_BYTES'),
     maxListResults: int(env.MAX_LIST_RESULTS, 500, 'MAX_LIST_RESULTS'),
     enableStdio: env.ENABLE_STDIO === 'true',
+    traceFile:
+      env.MCP_TRACE === 'true'
+        ? path.join(path.dirname(configPath(env.STATE_DB || path.join(defaultStateDir(), 'state.db'))), 'mcp-trace.log')
+        : undefined,
   };
 }

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
 const norm = (p: string) => (caseInsensitive ? path.normalize(p).toLowerCase() : path.normalize(p));
@@ -13,8 +14,13 @@ export function isInside(parent: string, child: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
+/** True for "/x", "C:\x", "C:x" and UNC "\\server\share" (on any platform). */
+export function isAbsoluteLike(p: string): boolean {
+  return path.isAbsolute(p) || /^[A-Za-z]:/.test(p) || p.startsWith('\\\\');
+}
+
 /** Realpath of the deepest existing ancestor of `p` (resolves symlinks/junctions). */
-async function realpathOfExistingAncestor(p: string): Promise<string> {
+export async function realpathOfExistingAncestor(p: string): Promise<string> {
   let current = p;
   for (;;) {
     try {
@@ -29,16 +35,161 @@ async function realpathOfExistingAncestor(p: string): Promise<string> {
   }
 }
 
+// ---- path input hygiene (spaces, quotes, URLs) ------------------------------
+
+/**
+ * Trim whitespace and strip matching surrounding quotes. Shells, .env files and LLM
+ * clients often wrap paths that contain spaces in quotes ("D:/Red Files/x").
+ * Spaces *inside* the path are preserved.
+ */
+export function unquote(value: string): string {
+  let s = value.trim();
+  for (;;) {
+    const q = s[0];
+    if (s.length < 2 || (q !== '"' && q !== "'") || s[s.length - 1] !== q) return s;
+    const inner = s.slice(1, -1);
+    // Only a genuine wrapping pair: 'a'='b' is two quoted parts, not one quoted string.
+    if (inner.includes(q)) return s;
+    s = inner.trim();
+  }
+}
+
+/** Clean an absolute folder path from config or a tool: unquote and accept file:// URLs (%20 becomes a space). */
+export function cleanAbsolutePath(value: string): string {
+  const s = unquote(value);
+  if (/^file:\/\//i.test(s)) {
+    try {
+      return fileURLToPath(s);
+    } catch {
+      throw new AccessError(`Invalid file URL: ${s}`);
+    }
+  }
+  return s;
+}
+
+/** Windows mangles names ending in a space or "." and forbids reserved characters (":" also opens alternate data streams). */
+const WIN_BAD_SEGMENT = /[<>:"|?*]|[ .]$/;
+
+function assertPortableSegments(relPath: string) {
+  if (process.platform !== 'win32') return;
+  for (const seg of relPath.split(/[\\/]+/)) {
+    if (seg && seg !== '.' && seg !== '..' && (WIN_BAD_SEGMENT.test(seg) || [...seg].some((c) => c.charCodeAt(0) < 32))) {
+      throw new AccessError(
+        `Invalid file or folder name "${seg}": on Windows names cannot end with a space or "." or contain < > : " | ? *.`,
+      );
+    }
+  }
+}
+
+const exists = (p: string) => fs.stat(p).then(() => true, () => false);
+
+/** Segment key that ignores whitespace (and case where the file system does). */
+const squash = (s: string) => {
+  const k = s.replace(/\s+/g, '');
+  return caseInsensitive ? k.toLowerCase() : k;
+};
+
+/** True if two path segments are equal ignoring whitespace (and case where the FS does). */
+export function sameIgnoringSpaces(a: string, b: string): boolean {
+  return squash(a) === squash(b);
+}
+
+/**
+ * Clients and LLMs sometimes drop or add spaces in folder names ("D:\RedFiles" for
+ * "D:\Red Files"). Walk `segments` below `base`; any segment that does not exist is
+ * matched against the real directory entries ignoring whitespace, and only when exactly
+ * one entry matches. Returns the corrected absolute path, or undefined if a segment
+ * cannot be matched unambiguously. With `allowMissingLeaf`, the last segment may be a
+ * new file (kept as given). Callers must still run containment checks on the result.
+ */
+export async function matchIgnoringSpaces(
+  base: string,
+  segments: string[],
+  allowMissingLeaf = false,
+): Promise<string | undefined> {
+  let current = base;
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (!seg || seg === '.') continue;
+    if (seg === '..') {
+      current = path.dirname(current);
+      continue;
+    }
+    const literal = path.join(current, seg);
+    if (await exists(literal)) {
+      current = literal;
+      continue;
+    }
+    const entries = await fs.readdir(current).catch(() => [] as string[]);
+    const hits = entries.filter((e) => sameIgnoringSpaces(e, seg));
+    if (hits.length === 1) {
+      current = path.join(current, hits[0]);
+      continue;
+    }
+    if (allowMissingLeaf && i === segments.length - 1 && hits.length === 0) return literal;
+    return undefined;
+  }
+  return current;
+}
+
+/** Split an absolute path into its root ("D:\\", "/", "\\\\server\\share\\") and segments. */
+export function splitAbsolute(p: string): { base: string; segments: string[] } {
+  const abs = path.resolve(p);
+  const { root } = path.parse(abs);
+  return { base: root, segments: abs.slice(root.length).split(/[\\/]+/).filter(Boolean) };
+}
+
+/**
+ * Like resolveInside, but tolerant of how clients mangle paths with spaces:
+ * surrounding quotes are stripped, and a URL-encoded path ("My%20File.md") is decoded
+ * when the literal path does not exist but the decoded one (or its folder) does.
+ * The decoded form is re-validated by resolveInside, so encoded "../" cannot escape.
+ */
+export async function resolveUserPath(root: string, relPath: string): Promise<{ target: string; relPath: string }> {
+  const rel = typeof relPath === 'string' ? unquote(relPath) : relPath;
+  const literal = await resolveInside(root, rel);
+  if (await exists(literal)) return { target: literal, relPath: rel };
+
+  let candidate = rel;
+  if (/%[0-9A-Fa-f]{2}/.test(rel)) {
+    try {
+      const decodedRel = decodeURIComponent(rel);
+      const decoded = await resolveInside(root, decodedRel);
+      if ((await exists(decoded)) || (!(await exists(path.dirname(literal))) && (await exists(path.dirname(decoded))))) {
+        return { target: decoded, relPath: decodedRel };
+      }
+      candidate = decodedRel;
+    } catch (err) {
+      if (err instanceof AccessError) throw err;
+      /* malformed escape: keep the literal */
+    }
+  }
+
+  // Last resort: the client dropped/added spaces in a folder or file name.
+  const realRoot = await fs.realpath(root);
+  const matched = await matchIgnoringSpaces(realRoot, candidate.split(/[\\/]+/), true);
+  if (matched && matched !== path.resolve(realRoot, candidate)) {
+    const fixedRel = path.relative(realRoot, matched).split(path.sep).join('/');
+    if (fixedRel && !fixedRel.startsWith('..')) {
+      return { target: await resolveInside(root, fixedRel), relPath: fixedRel }; // re-validated
+    }
+  }
+  return { target: literal, relPath: rel };
+}
+
 /**
  * Resolve a workspace-relative path and guarantee it stays inside the workspace,
  * including after following symlinks / junctions.
  */
 export async function resolveInside(root: string, relPath: string): Promise<string> {
   if (typeof relPath !== 'string' || relPath.trim() === '') throw new AccessError('Path is required.');
+  relPath = unquote(relPath);
+  if (relPath === '') throw new AccessError('Path is required.');
   if (relPath.includes('\0')) throw new AccessError('Invalid path.');
-  if (path.isAbsolute(relPath) || /^[A-Za-z]:/.test(relPath) || relPath.startsWith('\\\\')) {
+  if (isAbsoluteLike(relPath)) {
     throw new AccessError('Use a path relative to the workspace root.');
   }
+  assertPortableSegments(relPath);
   const realRoot = await fs.realpath(root);
   const target = path.resolve(realRoot, relPath);
   if (!isInside(realRoot, target)) throw new AccessError(`Path escapes the workspace: ${relPath}`);

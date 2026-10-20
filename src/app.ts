@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import fg from 'fast-glob';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -12,6 +14,54 @@ export function requestContext(req: Request): RequestContext {
   const conversationKey = req.get(CONVERSATION_HEADER)?.trim() || undefined;
   const client = req.get('mcp-client')?.trim() || (conversationKey ? 'copilot-studio' : 'http');
   return { conversationKey, client: client.slice(0, 64) };
+}
+
+const clip = (v: unknown, n: number) => {
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  return s && s.length > n ? `${s.slice(0, n)}…(${s.length} chars)` : s;
+};
+
+function traceMcp(file: string) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  return (req: Request, res: Response, next: NextFunction) => {
+    const started = Date.now();
+    const body = req.body as { method?: string; params?: { name?: string; arguments?: Record<string, unknown> } } | undefined;
+    const args = body?.params?.arguments
+      ? Object.fromEntries(Object.entries(body.params.arguments).map(([k, v]) => [k, k === 'content' ? clip(v, 80) : v]))
+      : undefined;
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const capture = (chunk: unknown) => {
+      if (chunk && size < 4096) {
+        const b =
+          typeof chunk === 'string' ? Buffer.from(chunk) : chunk instanceof Uint8Array ? Buffer.from(chunk) : Buffer.from(String(chunk));
+        chunks.push(b);
+        size += b.length;
+      }
+    };
+    const origWrite = res.write.bind(res) as (...a: unknown[]) => boolean;
+    const origEnd = res.end.bind(res) as (...a: unknown[]) => Response;
+    (res as unknown as { write: unknown }).write = (chunk: unknown, ...rest: unknown[]) => (capture(chunk), origWrite(chunk, ...rest));
+    (res as unknown as { end: unknown }).end = (chunk?: unknown, ...rest: unknown[]) => {
+      if (typeof chunk !== 'function') capture(chunk);
+      return origEnd(chunk, ...rest);
+    };
+    res.on('finish', () => {
+      const line = {
+        ts: new Date(started).toISOString(),
+        ms: Date.now() - started,
+        http: `${req.method} ${res.statusCode}`,
+        rpc: body?.method,
+        tool: body?.params?.name,
+        args,
+        conversationId: req.get(CONVERSATION_HEADER),
+        client: req.get('mcp-client') ?? req.get('user-agent'),
+        response: clip(Buffer.concat(chunks).toString('utf8'), 1500),
+      };
+      fs.appendFile(file, JSON.stringify(line) + '\n', () => {});
+    });
+    next();
+  };
 }
 
 export function createApp(deps: McpDeps) {
@@ -32,6 +82,10 @@ export function createApp(deps: McpDeps) {
   app.get('/health', (_req, res) => res.json({ status: 'healthy', version: SERVER_VERSION }));
 
   // ---- MCP Streamable HTTP (stateless) ----------------------------------
+  // Opt-in request trace (MCP_TRACE=true): records every /mcp request and the exact response,
+  // including calls rejected before a tool runs (auth, schema validation, unknown tool).
+  if (config.traceFile) app.use('/mcp', traceMcp(config.traceFile));
+
   app.post('/mcp', requireApiKey, async (req, res) => {
     const server = createMcpServer(deps, requestContext(req));
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });

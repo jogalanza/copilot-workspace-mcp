@@ -2,7 +2,20 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig } from './config.js';
 import type { StateStore, WorkspaceRow } from './db.js';
-import { AccessError, assertAlias, isInside } from './security.js';
+import {
+  AccessError,
+  assertAlias,
+  cleanAbsolutePath,
+  isAbsoluteLike,
+  isInside,
+  matchIgnoringSpaces,
+  realpathOfExistingAncestor,
+  sameIgnoringSpaces,
+  splitAbsolute,
+  unquote,
+} from './security.js';
+
+const fileExists = (p: string) => fs.stat(p).then(() => true, () => false);
 
 /** Per-request context derived from transport (HTTP headers / stdio). */
 export interface RequestContext {
@@ -14,8 +27,9 @@ export interface RequestContext {
 
 /** Workspace selectors every tool accepts. */
 export interface WorkspaceSelector {
-  workspace?: string;
-  conversationId?: string;
+  /** null is accepted: Copilot Studio sends null for optional inputs left empty. */
+  workspace?: string | null;
+  conversationId?: string | null;
 }
 
 export type ResolutionSource = 'argument' | 'conversation' | 'default';
@@ -74,6 +88,65 @@ export class WorkspaceService {
     return { alias: row.alias, root: row.root_path, source, conversationKey };
   }
 
+  /**
+   * Resolve the workspace for a file path. Relative paths use the normal resolution
+   * order. Absolute paths (incl. quoted or file:// forms) are routed to the registered
+   * workspace that contains them, preferring the chat's own workspace, and converted to
+   * a workspace-relative path. Containment is checked on the real path (links followed),
+   * and the result is still validated by resolveInside by the caller.
+   */
+  async resolveForPath(
+    ctx: RequestContext,
+    sel: WorkspaceSelector,
+    rawPath: string,
+  ): Promise<{ ws: ResolvedWorkspace; relPath: string }> {
+    const cleaned = typeof rawPath === 'string' ? cleanAbsolutePath(rawPath) : rawPath;
+    if (typeof cleaned !== 'string' || !isAbsoluteLike(cleaned)) {
+      return { ws: await this.resolve(ctx, sel), relPath: cleaned };
+    }
+    if (cleaned.includes('\0')) throw new AccessError('Invalid path.');
+    let abs = path.resolve(cleaned);
+    if (!(await fileExists(abs))) {
+      // e.g. "D:\RedFiles\..." sent for "D:\Red Files\...".
+      const { base, segments } = splitAbsolute(abs);
+      abs = (await matchIgnoringSpaces(base, segments, true)) ?? abs;
+    }
+    const real = await realpathOfExistingAncestor(abs);
+    const alias = await this.workspaceContaining(real, ctx, sel);
+    const ws = await this.resolve(ctx, { ...sel, workspace: alias });
+    const realRoot = await fs.realpath(ws.root);
+    // Forward slashes, matching list_files output and how relative paths are usually written.
+    return { ws, relPath: path.relative(realRoot, real).split(path.sep).join('/') || '.' };
+  }
+
+  /**
+   * Same as resolveForPath for glob patterns: an absolute pattern such as
+   * "D:/Red Files/Projects/PDCS2022/host-vite/**\/*.vue" becomes "host-vite/**\/*.vue" in
+   * workspace PDCS. Matching is textual on the static prefix (globs cannot be realpath'd).
+   */
+  async resolveForPattern(
+    ctx: RequestContext,
+    sel: WorkspaceSelector,
+    rawPattern: string,
+  ): Promise<{ ws: ResolvedWorkspace; pattern: string }> {
+    const cleaned = cleanAbsolutePath(rawPattern);
+    if (!isAbsoluteLike(cleaned)) return { ws: await this.resolve(ctx, sel), pattern: cleaned };
+    const segs = (p: string) => p.split(/[\\/]+/).filter(Boolean);
+    const patSegs = segs(cleaned);
+    const current = await this.currentAlias(ctx, sel);
+    // Compare folder by folder, ignoring spaces/case ("D:/RedFiles/..." matches "D:\Red Files").
+    const hits = this.store
+      .listWorkspaces()
+      .map((w) => ({ alias: w.alias, rootSegs: segs(w.root_path) }))
+      .filter((w) => w.rootSegs.length <= patSegs.length && w.rootSegs.every((s, i) => sameIgnoringSpaces(s, patSegs[i])))
+      .sort(
+        (a, b) => Number(b.alias === current) - Number(a.alias === current) || b.rootSegs.length - a.rootSegs.length,
+      );
+    if (!hits.length) throw this.outsideError(rawPattern);
+    const ws = await this.resolve(ctx, { ...sel, workspace: hits[0].alias });
+    return { ws, pattern: patSegs.slice(hits[0].rootSegs.length).join('/') || '**/*' };
+  }
+
   /** Bind the chat to a workspace (and/or make it the default). */
   async switchTo(ctx: RequestContext, sel: WorkspaceSelector & { makeDefault?: boolean }) {
     const alias = (sel.workspace ?? '').trim();
@@ -115,8 +188,11 @@ export class WorkspaceService {
   }
 
   /** Register a new workspace. Only allowed under ALLOWED_ROOTS. */
-  async add(alias: string, folder: string, makeDefault = false) {
+  async add(alias: string, rawFolder: string, makeDefault = false) {
+    alias = unquote(alias);
     assertAlias(alias);
+    // Accept "D:/Red Files/x", '"D:/Red Files/x"' and file:///D:/Red%20Files/x alike.
+    const folder = cleanAbsolutePath(rawFolder);
     if (this.config.allowedRoots.length === 0) {
       throw new AccessError('Adding workspaces is disabled. Set ALLOWED_ROOTS on the server to enable it.');
     }
@@ -187,6 +263,34 @@ export class WorkspaceService {
 
   // ---- helpers ----------------------------------------------------------
 
+  /** Alias resolve() would pick, without side effects or errors. */
+  private async currentAlias(ctx: RequestContext, sel: WorkspaceSelector): Promise<string | undefined> {
+    if (sel.workspace?.trim()) return sel.workspace.trim();
+    const key = this.conversationKey(ctx, sel);
+    return (key && this.store.getBinding(key)?.alias) || this.getDefault();
+  }
+
+  /** Registered workspace whose real root contains `realPath`: the chat's own first, then the deepest. */
+  private async workspaceContaining(realPath: string, ctx: RequestContext, sel: WorkspaceSelector): Promise<string> {
+    const current = await this.currentAlias(ctx, sel);
+    const hits: { alias: string; root: string }[] = [];
+    for (const w of this.store.listWorkspaces()) {
+      const root = await fs.realpath(w.root_path).catch(() => undefined);
+      if (root && isInside(root, realPath)) hits.push({ alias: w.alias, root });
+    }
+    hits.sort((a, b) => Number(b.alias === current) - Number(a.alias === current) || b.root.length - a.root.length);
+    if (!hits.length) throw this.outsideError(realPath);
+    return hits[0].alias;
+  }
+
+  private outsideError(p: string): AccessError {
+    const roots = this.store.listWorkspaces().map((w) => `${w.alias} = ${w.root_path}`);
+    return new AccessError(
+      `"${p}" is not inside any registered workspace. Use a path relative to the workspace root, ` +
+        `or register the folder with add_workspace. ${roots.length ? `Registered: ${roots.join('; ')}.` : this.availableText()}`,
+    );
+  }
+
   private requireWorkspace(alias: string): WorkspaceRow {
     const row = alias ? this.store.getWorkspace(alias) : undefined;
     if (!row) throw new AccessError(`Unknown workspace "${alias}". ${this.availableText()}`);
@@ -201,8 +305,17 @@ export class WorkspaceService {
   private async realDirectory(folder: string): Promise<string> {
     let real: string;
     try {
-      real = await fs.realpath(folder);
-    } catch {
+      real = await fs.realpath(folder).catch(async (err) => {
+        // Client dropped/added spaces ("D:\RedFiles\..." for "D:\Red Files\...").
+        const { base, segments } = splitAbsolute(folder);
+        const fixed = await matchIgnoringSpaces(base, segments);
+        if (!fixed) throw err;
+        return fs.realpath(fixed);
+      });
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      // Diagnostics go to stderr (stdout is reserved for the stdio transport).
+      console.error('[realDirectory]', { folder, abs: path.resolve(folder), cwd: process.cwd(), code: e?.code, msg: e?.message });
       throw new AccessError(`Folder does not exist: ${folder}`);
     }
     if (!(await fs.stat(real)).isDirectory()) throw new AccessError(`Not a folder: ${folder}`);

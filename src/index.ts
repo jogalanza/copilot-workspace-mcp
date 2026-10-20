@@ -32,6 +32,7 @@ housekeeping();
 setInterval(housekeeping, 24 * 60 * 60 * 1000).unref();
 
 log(`State DB: ${config.stateDbPath}`);
+if (config.traceFile) log(`MCP_TRACE on: every /mcp request is written to ${config.traceFile}`);
 log(`Workspaces: ${workspaces.availableText()} Default: ${workspaces.getDefault() ?? '(none)'}`);
 if (config.allowedRoots.length) log(`add_workspace allowed under: ${config.allowedRoots.join('; ')}`);
 

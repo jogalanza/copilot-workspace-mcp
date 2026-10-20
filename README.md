@@ -42,8 +42,8 @@ Every file tool reply starts with `[workspace: <alias>]`.
 | `current_workspace` | Which workspace this chat uses and why |
 | `add_workspace` / `remove_workspace` | Register/unregister a folder (only under `ALLOWED_ROOTS`) |
 | `list_files` | Glob within the workspace (skips `node_modules`, `.git`) |
-| `read_file` | Read a text file (size-capped) |
-| `write_file` | Atomic create/overwrite; blocked in `.git`, `node_modules` |
+| `ws_read_file` | Read a text file (size-capped) |
+| `ws_write_file` | Atomic create/overwrite; blocked in `.git`, `node_modules` |
 
 ## HTTP endpoints
 
