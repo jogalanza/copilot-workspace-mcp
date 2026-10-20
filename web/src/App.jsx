@@ -18,7 +18,7 @@ const shell = window.chrome?.webview ? (m) => window.chrome.webview.postMessage(
 export default function App() {
   const [entries, setEntries] = useState([]);
   const [activity, setActivity] = useState({ count: 0 });
-  const [stats, setStats] = useState({ buckets: [], tools: [], hours: [], chats: [], blocked: [] });
+  const [stats, setStats] = useState({ buckets: [], tools: [], hours: [], chats: [], blocked: [], workspaces: [] });
   const [state, setState] = useState(null);
   const [offline, setOffline] = useState(false);
   const [ripples, setRipples] = useState([]);

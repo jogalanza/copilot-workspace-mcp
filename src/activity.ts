@@ -14,6 +14,11 @@ const MAX_BLOCKED = 20;
 const HOUR_MS = 3_600_000;
 const HOUR_COUNT = 14 * 24; // keep two weeks of per-hour totals
 const MAX_LATENCY_SAMPLES = 40; // per minute bucket, for percentiles
+const MAX_WORKSPACES = 20;
+const WS_SLOT_MS = 600_000; // per-workspace counts are kept in 10 minute slots
+const WS_SLOT_KEEP = 7 * 144; // ...for up to a week
+const TREND_POINTS = 24; // points in a workspace trend line
+const STARTED = Date.now(); // module load = process start; survives in-process server restarts
 
 /** Why a tool call failed: policy refusal, time limit, malformed request, rejected input, or a crash in the tool. */
 export type ErrorKind = 'blocked' | 'timeout' | 'invalid' | 'rejected' | 'failed';
@@ -98,12 +103,23 @@ export interface BlockedStat {
   ts: number;
   error: string;
 }
+/** Calls against one workspace since the process started, with a trend line spread evenly over that time. */
+export interface WorkspaceStat {
+  alias: string;
+  calls: number;
+  errors: number;
+  /** TREND_POINTS call counts, oldest first, covering `since` to now. */
+  trend: number[];
+}
 export interface StatsSnapshot {
   buckets: Bucket[];
   tools: ToolStat[];
   hours: HourBucket[];
   chats: ChatStat[];
   blocked: BlockedStat[];
+  workspaces: WorkspaceStat[];
+  /** When the process started (epoch ms): the left edge of the workspace trends. */
+  since: number;
 }
 export interface CallSource {
   conversation?: string;
@@ -130,6 +146,7 @@ class ActivityTracker {
   private hours = new Map<number, [calls: number, errors: number]>();
   private chats = new Map<string, ChatStat>();
   private blocked = new Map<string, BlockedStat>();
+  private workspaces = new Map<string, { calls: number; errors: number; slots: Map<number, number> }>();
   private statsListeners = new Set<(s: StatsSnapshot) => void>();
   private statsTimer: NodeJS.Timeout | undefined;
   private file: string | undefined;
@@ -215,6 +232,21 @@ class ActivityTracker {
     }
     if (this.file) this.saveTimer ??= setTimeout(() => this.flush(), 30_000).unref();
 
+    if (call.workspace) {
+      let ws = this.workspaces.get(call.workspace);
+      if (!ws && this.workspaces.size < MAX_WORKSPACES) {
+        ws = { calls: 0, errors: 0, slots: new Map() };
+        this.workspaces.set(call.workspace, ws);
+      }
+      if (ws) {
+        ws.calls++;
+        if (!ok) ws.errors++;
+        const slot = Math.floor(now / WS_SLOT_MS) * WS_SLOT_MS;
+        ws.slots.set(slot, (ws.slots.get(slot) ?? 0) + 1);
+        if (ws.slots.size > WS_SLOT_KEEP) ws.slots.delete(Math.min(...ws.slots.keys()));
+      }
+    }
+
     const chatKey = call.conversation ?? '';
     let chat = this.chats.get(chatKey);
     if (!chat) {
@@ -261,7 +293,31 @@ class ActivityTracker {
       .map(([t, [calls, errors]]) => ({ t, calls, errors }));
     const chats = [...this.chats.values()].sort((x, y) => y.lastTs - x.lastTs).slice(0, 8).map((c) => ({ ...c }));
     const blocked = [...this.blocked.values()].sort((x, y) => y.ts - x.ts).slice(0, 8).map((x) => ({ ...x }));
-    return { buckets: this.buckets.map((b) => ({ ...b, kinds: { ...b.kinds }, lat: [...b.lat] })), tools, hours, chats, blocked };
+    // Spread each workspace's 10 minute slots over TREND_POINTS evenly sized steps between process start and now.
+    const now = Date.now();
+    const step = Math.max(WS_SLOT_MS, (now - STARTED) / TREND_POINTS);
+    const first = now - step * TREND_POINTS;
+    const workspaces = [...this.workspaces]
+      .map(([alias, v]) => {
+        const trend = new Array<number>(TREND_POINTS).fill(0);
+        for (const [slot, n] of v.slots) {
+          const i = Math.floor((slot + WS_SLOT_MS / 2 - first) / step);
+          if (i >= 0) trend[Math.min(TREND_POINTS - 1, i)]! += n;
+        }
+        // A young process has fewer than TREND_POINTS slots of history: drop the leading empty ones.
+        const used = Math.min(TREND_POINTS, Math.max(2, Math.ceil((now - STARTED) / step)));
+        return { alias, calls: v.calls, errors: v.errors, trend: trend.slice(TREND_POINTS - used) };
+      })
+      .sort((a, b) => b.calls - a.calls);
+    return {
+      buckets: this.buckets.map((b) => ({ ...b, kinds: { ...b.kinds }, lat: [...b.lat] })),
+      tools,
+      hours,
+      chats,
+      blocked,
+      workspaces,
+      since: STARTED,
+    };
   }
 
   subscribeStats(l: (s: StatsSnapshot) => void): () => void {

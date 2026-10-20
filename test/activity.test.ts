@@ -132,3 +132,20 @@ describe('activity analytics', () => {
     assert.ok(snap.hours.reduce((n, h) => n + h.calls, 0) >= 3);
   });
 });
+
+describe('workspace trend', () => {
+  it('counts calls per workspace since start and spreads them over a trend line', async () => {
+    const mk = (name: string) => activity.recordBody({ method: 'tools/call', params: { name, arguments: {} } });
+    await activity.track(mk('ws_read_file'), async () => activity.complete('ws_read_file', { ok: true, ms: 1, workspace: 'trend-ws' }));
+    await activity.track(mk('ws_read_file'), async () =>
+      activity.complete('ws_read_file', { ok: false, ms: 1, workspace: 'trend-ws', error: 'File not found', accessError: true }),
+    );
+    const snap = activity.statsSnapshot();
+    const ws = snap.workspaces.find((w) => w.alias === 'trend-ws')!;
+    assert.equal(ws.calls, 2);
+    assert.equal(ws.errors, 1);
+    assert.ok(ws.trend.length >= 2 && ws.trend.length <= 24);
+    assert.equal(ws.trend.reduce((n, v) => n + v, 0), 2);
+    assert.ok(snap.since <= Date.now());
+  });
+});

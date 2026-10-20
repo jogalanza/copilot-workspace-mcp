@@ -1,4 +1,5 @@
 import { ago, fmtBytes, fmtMs, upTime } from '../util.js';
+import { Spark } from './charts.jsx';
 
 const callsLabel = (t) => t.calls + (t.calls === 1 ? ' call' : ' calls');
 
@@ -217,6 +218,37 @@ function Heatmap({ hours, now }) {
   );
 }
 
+/** One row per workspace: calls since start, share of all workspace calls, and a trend line with the change over the period. */
+function WorkspaceTrends({ items }) {
+  if (!items.length) return <div className="mt-2 text-sm text-mute">No workspace calls yet.</div>;
+  const total = items.reduce((n, w) => n + w.calls, 0);
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {items.map((w) => {
+        const half = Math.floor(w.trend.length / 2);
+        const before = w.trend.slice(0, half).reduce((n, v) => n + v, 0);
+        const after = w.trend.slice(half).reduce((n, v) => n + v, 0);
+        // Compare the recent half of the period with the earlier half.
+        const delta = before === 0 ? (after > 0 ? null : 0) : Math.round(((after - before) / before) * 100);
+        const label = delta === null ? 'new' : delta === 0 ? 'steady' : (delta > 0 ? '↑ ' : '↓ ') + Math.abs(delta) + '%';
+        return (
+          <div key={w.alias} className="rounded-xl bg-white/5 px-3 py-1.5">
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate font-medium">{w.alias}</span>
+              <span className="shrink-0 tabular-nums">{callsLabel(w)}</span>
+            </div>
+            <Spark values={w.trend} lo={0} hi={Math.max(1, ...w.trend)} color="#2aa7ff" />
+            <div className="flex justify-between text-xs text-mute">
+              <span>{Math.round((w.calls / total) * 100)}% of workspace calls{w.errors ? ' · ' + w.errors + ' failed' : ''}</span>
+              <span className={delta === null || delta > 0 ? 'text-go' : ''}>{label}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function pctClass(p) {
   return p === undefined || p >= 99 ? '' : p >= 90 ? 'text-warn' : 'text-stop';
 }
@@ -239,6 +271,9 @@ export function UsageTab({ stats, state, now }) {
             sub: clientName(c.client) + ' · ' + ago(c.lastTs, now) + (c.errors ? ' · ' + c.errors + ' failed' : ''),
           })}
         />
+      </Section>
+      <Section title="Workspace trend" note={'since start · ' + upTime((now - (stats.since || now)) / 1000)}>
+        <WorkspaceTrends items={stats.workspaces || []} />
       </Section>
       <Section title="Busiest hours" note="last 7 days">
         <Heatmap hours={stats.hours || []} now={now} />
