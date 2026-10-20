@@ -1,8 +1,10 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createApp } from './app.js';
+import { BrowserManager } from './browserManager.js';
 import { loadConfig } from './config.js';
 import { StateStore } from './db.js';
 import { createMcpServer } from './mcpServer.js';
+import { ProcessManager } from './processManager.js';
 import { WorkspaceService } from './workspaceManager.js';
 
 // All logging goes to stderr: stdout is reserved for the stdio MCP transport.
@@ -18,7 +20,9 @@ if (!config.apiKey) log('WARNING: running WITHOUT authentication (MCP_ALLOW_ANON
 
 const store = new StateStore(config.stateDbPath);
 const workspaces = new WorkspaceService(store, config);
-const deps = { config, store, workspaces };
+const browser = config.enableBrowser ? new BrowserManager(config) : undefined;
+const processes = config.runAllowedCommands.length ? new ProcessManager(config) : undefined;
+const deps = { config, store, workspaces, browser, processes };
 
 for (const w of await workspaces.seed()) log('WARNING:', w);
 
@@ -33,6 +37,8 @@ setInterval(housekeeping, 24 * 60 * 60 * 1000).unref();
 
 log(`State DB: ${config.stateDbPath}`);
 if (config.traceFile) log(`MCP_TRACE on: every /mcp request is written to ${config.traceFile}`);
+if (browser) log(`Browser tools on (${config.browserExecutable ?? config.browserChannel}); allowed hosts: ${config.browserAllowedHosts.join(', ')}`);
+if (processes) log(`run_command allowed: ${config.runAllowedCommands.join(' | ')}`);
 log(`Workspaces: ${workspaces.availableText()} Default: ${workspaces.getDefault() ?? '(none)'}`);
 if (config.allowedRoots.length) log(`add_workspace allowed under: ${config.allowedRoots.join('; ')}`);
 
@@ -50,8 +56,9 @@ if (config.enableStdio) {
   await createMcpServer(deps, { client: 'stdio' }).connect(new StdioServerTransport());
 }
 
-const shutdown = () => {
+const shutdown = async () => {
   httpServer.close();
+  await Promise.allSettled([browser?.shutdown(), processes?.shutdown()]);
   store.close();
   process.exit(0);
 };

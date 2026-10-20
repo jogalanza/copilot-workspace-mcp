@@ -45,6 +45,22 @@ Every file tool reply starts with `[workspace: <alias>]`.
 | `ws_read_file` | Read a text file (size-capped) |
 | `ws_write_file` | Atomic create/overwrite; blocked in `.git`, `node_modules` |
 
+### Optional: headless browser and command runner
+
+Both are **off by default** (see `.env.example`).
+
+| Tool | Enabled by | Purpose |
+|---|---|---|
+| `browser_open`, `browser_screenshot`, `browser_text`, `browser_click`, `browser_type`, `browser_logs`, `browser_eval`, `browser_close` | `ENABLE_BROWSER=true` | Drive a headless Edge/Chrome (one tab per chat). Screenshots are returned as images **and** saved under `<workspace>/.screenshots/`. |
+| `run_command`, `process_output`, `process_stop`, `list_processes` | `RUN_ALLOWED_COMMANDS` non-empty | Run allowlisted commands in a workspace root, optionally in the background (dev servers), with output capture. |
+
+Typical flow: `run_command` `npm run dev` (background, `readyText`) -> `browser_open` the printed URL -> `browser_screenshot` -> `browser_logs` -> `process_stop`.
+
+Safety: the browser only loads hosts in `BROWSER_ALLOWED_HOSTS` (default localhost; every sub-request and redirect is checked, `file:` is refused).
+`run_command` only starts commands that begin with an allowlist entry, rejects quotes, pipes, `&`, `;`, `$`, `%` and redirects, runs without `MCP_API_KEY` in its environment,
+and each chat can only see and stop its own processes. Do not allowlist interpreters such as `node` or `powershell`. These tools give anyone holding the API key a way to run
+your project's scripts, so keep the key private and the allowlist small. Uses `playwright-core` against an installed browser; no browser download.
+
 ## HTTP endpoints
 
 All except `/health` require the API key (`api-key` header, `Authorization: Bearer`, or `?api_key=`).

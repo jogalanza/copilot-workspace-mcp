@@ -24,6 +24,19 @@ export interface AppConfig {
   enableStdio: boolean;
   /** MCP_TRACE=true: append every /mcp request + response to this file (next to the state DB). */
   traceFile: string | undefined;
+  /** ENABLE_BROWSER=true registers the browser_* tools (headless Chromium via playwright-core). */
+  enableBrowser: boolean;
+  /** Installed browser to drive: "msedge" (default), "chrome", ... Ignored when browserExecutable is set. */
+  browserChannel: string;
+  browserExecutable: string | undefined;
+  /** Hosts the browser may load (exact, or "*.example.com"). Default: localhost only. */
+  browserAllowedHosts: string[];
+  browserIdleMinutes: number;
+  /** Commands run_command may start: each entry is a command prefix like "npm run dev". Empty = run_command disabled. */
+  runAllowedCommands: string[];
+  runTimeoutSeconds: number;
+  maxBackgroundProcesses: number;
+  maxProcessOutputBytes: number;
 }
 
 /** Split a list on ';' (and newlines). ';' is used instead of path.delimiter so
@@ -91,5 +104,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env.MCP_TRACE === 'true'
         ? path.join(path.dirname(configPath(env.STATE_DB || path.join(defaultStateDir(), 'state.db'))), 'mcp-trace.log')
         : undefined,
+    enableBrowser: env.ENABLE_BROWSER === 'true',
+    browserChannel: env.BROWSER_CHANNEL || 'msedge',
+    browserExecutable: env.BROWSER_EXECUTABLE ? configPath(env.BROWSER_EXECUTABLE) : undefined,
+    browserAllowedHosts: env.BROWSER_ALLOWED_HOSTS
+      ? splitList(env.BROWSER_ALLOWED_HOSTS).map((h) => h.toLowerCase())
+      : ['localhost', '127.0.0.1', '[::1]'],
+    browserIdleMinutes: int(env.BROWSER_IDLE_MINUTES, 10, 'BROWSER_IDLE_MINUTES'),
+    runAllowedCommands: splitList(env.RUN_ALLOWED_COMMANDS),
+    runTimeoutSeconds: int(env.RUN_TIMEOUT_SECONDS, 120, 'RUN_TIMEOUT_SECONDS'),
+    maxBackgroundProcesses: int(env.MAX_BACKGROUND_PROCESSES, 3, 'MAX_BACKGROUND_PROCESSES'),
+    maxProcessOutputBytes: int(env.MAX_PROCESS_OUTPUT_BYTES, 64 * 1024, 'MAX_PROCESS_OUTPUT_BYTES'),
   };
 }

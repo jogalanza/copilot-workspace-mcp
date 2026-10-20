@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copilot Studio Setup Guide</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1b1f27; --muted: #5b6475; --line: #dfe3ea;
+    --accent: #5b4bdb; --accent-soft: #ecebfb; --ok: #1a7f4b; --ok-soft: #e3f4ea;
+    --warn: #9a5b00; --warn-soft: #fdf1dc; --bad: #b3261e; --bad-soft: #fbe6e4;
+    --code-bg: #0f1420; --code-ink: #e6e9f2; --mock-bg: #f0f2f7; --mock-bar: #e1e5ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f131b; --card: #171c27; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2a3142;
+      --accent: #8d80ff; --accent-soft: #231f4a; --ok: #5fd193; --ok-soft: #12301f;
+      --warn: #f0b45a; --warn-soft: #3a2a0f; --bad: #ff8b82; --bad-soft: #3d1815;
+      --code-bg: #0a0d14; --code-ink: #e6e9f2; --mock-bg: #1d2331; --mock-bar: #2a3142;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 16px 80px; }
+  header.hero { padding: 48px 0 24px; }
+  .eyebrow { color: var(--accent); font-weight: 600; letter-spacing: .08em; font-size: 13px; text-transform: uppercase; }
+  h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.15; margin: 8px 0 12px; }
+  .lead { color: var(--muted); font-size: 18px; max-width: 62ch; margin: 0; }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 8px; }
+  nav.toc a { text-decoration: none; color: var(--ink); background: var(--card); border: 1px solid var(--line);
+    border-radius: 999px; padding: 4px 12px; font-size: 14px; }
+  nav.toc a:hover { border-color: var(--accent); color: var(--accent); }
+  section { margin-top: 40px; }
+  h2 { font-size: 24px; margin: 0 0 8px; display: flex; align-items: center; gap: 12px; }
+  .num { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff;
+    display: inline-grid; place-items: center; font-size: 16px; font-weight: 700; }
+  h3 { font-size: 17px; margin: 24px 0 6px; }
+  p { margin: 8px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 16px 0; }
+  code { font: 14px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; background: var(--accent-soft);
+    padding: 1px 6px; border-radius: 5px; }
+  pre { background: var(--code-bg); color: var(--code-ink); border-radius: 10px; padding: 14px 16px; overflow-x: auto;
+    margin: 12px 0; font: 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+  pre code { background: none; padding: 0; color: inherit; }
+  .callout { border-radius: 10px; padding: 12px 16px; margin: 16px 0; border: 1px solid; }
+  .callout.tip { background: var(--ok-soft); border-color: var(--ok); }
+  .callout.warn { background: var(--warn-soft); border-color: var(--warn); }
+  .callout.bad { background: var(--bad-soft); border-color: var(--bad); }
+  .callout b:first-child { display: block; margin-bottom: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 12px 0; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; }
+  .table-scroll { overflow-x: auto; }
+  svg { max-width: 100%; height: auto; display: block; }
+  svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
+  svg .box { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+  svg .hl { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+  svg .sub { fill: var(--muted); font-size: 12px; }
+  svg .lbl { font-size: 14px; font-weight: 600; }
+  svg .line { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+  svg .arrowhead { fill: var(--muted); }
+  /* UI mockups */
+  .mock { background: var(--mock-bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin: 14px 0; }
+  .mock-bar { background: var(--mock-bar); padding: 8px 14px; font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); display: inline-block; }
+  .mock-body { padding: 16px; display: grid; gap: 10px; }
+  .mock-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .field { flex: 1 1 200px; }
+  .field small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+  .input { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font-size: 14px; word-break: break-all; }
+  .btn { display: inline-block; background: var(--accent); color: #fff; border-radius: 6px; padding: 7px 14px; font-size: 14px; font-weight: 600; }
+  .btn.ghost { background: var(--card); color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
+  .pill { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; background: var(--ok-soft); color: var(--ok); }
+  .toggle { width: 34px; height: 18px; border-radius: 9px; background: var(--ok); position: relative; flex: none; }
+  .toggle::after { content: ""; position: absolute; right: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+  .tool { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: flex; gap: 12px; align-items: center; }
+  .tool div { flex: 1; }
+  .tool b { display: block; font-size: 14px; }
+  .tool span { font-size: 12px; color: var(--muted); }
+  .chat { display: grid; gap: 8px; }
+  .msg { max-width: 82%; padding: 8px 12px; border-radius: 12px; font-size: 14px; }
+  .msg.user { background: var(--accent); color: #fff; justify-self: end; border-bottom-right-radius: 3px; }
+  .msg.bot { background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 3px; }
+  .msg.call { background: var(--accent-soft); border: 1px dashed var(--accent); font: 13px ui-monospace, Consolas, monospace; max-width: 100%; }
+  .note { font-size: 13px; color: var(--muted); margin: -6px 0 12px; }
+  ol.steps { padding-left: 22px; } ol.steps li { margin: 6px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 680px) { .grid2 { grid-template-columns: 1fr; } .msg { max-width: 95%; } }
+  footer { margin-top: 56px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">M365 Code Analyzer MCP</div>
+  <h1>Set up a Copilot Studio agent with this MCP server</h1>
+  <p class="lead">Give a Copilot Studio agent (and Teams chats) the ability to list, read and write files in named code workspaces on your machine, with each chat remembering its own workspace.</p>
+  <nav class="toc" aria-label="Contents">
+    <a href="#overview">Overview</a>
+    <a href="#s1">1 Server</a>
+    <a href="#s2">2 Tunnel</a>
+    <a href="#s3">3 Agent</a>
+    <a href="#s4">4 Connector</a>
+    <a href="#s5">5 conversation-id</a>
+    <a href="#s6">6 Instructions</a>
+    <a href="#s7">7 Test</a>
+    <a href="#s8">8 Publish</a>
+    <a href="#extras">Browser &amp; commands</a>
+    <a href="#how">How workspaces work</a>
+    <a href="#updates">Updating</a>
+    <a href="#trouble">Troubleshooting</a>
+  </nav>
+</header>
+
+<section id="overview">
+  <h2>Overview</h2>
+  <p>Copilot Studio cannot reach <code>localhost</code>, so the server is exposed through a dev tunnel. The agent talks to it through a Power Platform custom connector that carries your API key and the chat's id.</p>
+  <div class="card">
+    <svg viewBox="0 0 860 190" role="img" aria-label="Architecture: Copilot Studio agent calls a custom connector, through a dev tunnel, to the MCP server on port 8790, which reads and writes workspace folders.">
+      <defs><marker id="ah" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+      <rect class="box" x="10" y="45" width="150" height="90" rx="10"/>
+      <text class="lbl" x="85" y="82" text-anchor="middle">Copilot Studio</text>
+      <text class="sub" x="85" y="102" text-anchor="middle">agent + Teams chat</text>
+      <rect class="hl" x="215" y="45" width="140" height="90" rx="10"/>
+      <text class="lbl" x="285" y="82" text-anchor="middle">MCP connection</text>
+      <text class="sub" x="285" y="102" text-anchor="middle">api-key + conversation-id</text>
+      <rect class="box" x="410" y="45" width="130" height="90" rx="10"/>
+      <text class="lbl" x="475" y="82" text-anchor="middle">Dev tunnel</text>
+      <text class="sub" x="475" y="102" text-anchor="middle">https://…devtunnels.ms</text>
+      <rect class="hl" x="595" y="45" width="130" height="90" rx="10"/>
+      <text class="lbl" x="660" y="82" text-anchor="middle">MCP server</text>
+      <text class="sub" x="660" y="102" text-anchor="middle">localhost:8790/mcp</text>
+      <rect class="box" x="770" y="20" width="80" height="40" rx="8"/><text class="sub" x="810" y="45" text-anchor="middle">repo-a/</text>
+      <rect class="box" x="770" y="75" width="80" height="40" rx="8"/><text class="sub" x="810" y="100" text-anchor="middle">repo-b/</text>
+      <rect class="box" x="770" y="130" width="80" height="40" rx="8"/><text class="sub" x="810" y="155" text-anchor="middle">repo-c/</text>
+      <path class="line" d="M160 90 H213" marker-end="url(#ah)"/>
+      <path class="line" d="M355 90 H408" marker-end="url(#ah)"/>
+      <path class="line" d="M540 90 H593" marker-end="url(#ah)"/>
+      <path class="line" d="M725 80 L768 42" marker-end="url(#ah)"/>
+      <path class="line" d="M725 90 L768 95" marker-end="url(#ah)"/>
+      <path class="line" d="M725 100 L768 148" marker-end="url(#ah)"/>
+    </svg>
+  </div>
+  <h3>You will need</h3>
+  <ul>
+    <li>Node.js 22.13 or newer</li>
+    <li>A Copilot Studio environment where you can create agents and custom connectors</li>
+    <li>The <a href="https://learn.microsoft.com/azure/developer/dev-tunnels/get-started">Dev Tunnels CLI</a> (<code>devtunnel</code>) or another HTTPS tunnel</li>
+  </ul>
+  <div class="callout warn"><b>About the screenshots</b>The panels below are simplified illustrations, not real screenshots. Copilot Studio changes its menus often, so labels may differ slightly. The values you enter are the part that matters.</div>
+</section>
+
+<section id="s1">
+  <h2><span class="num">1</span>Configure and start the server</h2>
+  <pre><code>npm install
+Copy-Item .env.example .env
+npm run new-key        # writes MCP_API_KEY into .env and prints it once - copy it
+</code></pre>
+  <p>Edit <code>.env</code> and register the folders the agent may touch:</p>
+  <pre><code>WORKSPACES="app=D:/Repos/my-app;docs=D:/Repos/my-docs"
+DEFAULT_WORKSPACE=app
+ALLOWED_ROOTS="D:/Repos"          # add_workspace may only register folders under these roots</code></pre>
+  <div class="callout tip"><b>Paths with spaces or #</b>Wrap the whole value in double quotes. An unquoted <code>#</code> starts a comment and silently truncates the path.</div>
+  <pre><code>npm run dev      # or: npm run build && npm start
+curl http://localhost:8790/health</code></pre>
+  <p>You should see a healthy response. <code>/health</code> is the only endpoint that does not need the API key.</p>
+</section>
+
+<section id="s2">
+  <h2><span class="num">2</span>Expose it with a dev tunnel</h2>
+  <pre><code>devtunnel user login
+devtunnel host -p 8790 --allow-anonymous</code></pre>
+  <p>Copy the HTTPS host it prints, for example <code>abc123-8790.euw.devtunnels.ms</code>. Check it from outside:</p>
+  <pre><code>curl https://abc123-8790.euw.devtunnels.ms/health</code></pre>
+  <div class="callout warn"><b>Why anonymous?</b>Copilot Studio cannot sign in to the tunnel itself. The tunnel is open, but every endpoint except <code>/health</code> still returns <code>401</code> without your <code>MCP_API_KEY</code>. Treat the key like a password and stop the tunnel when you are not using it.</div>
+  <p>The MCP endpoint is <code>https://&lt;tunnel-host&gt;/mcp</code>. The <code>/mcp</code> suffix is required.</p>
+</section>
+
+<section id="s3">
+  <h2><span class="num">3</span>Create the agent</h2>
+  <ol class="steps">
+    <li>Open <b>Copilot Studio</b> and choose <b>Create</b> &rarr; <b>New agent</b>.</li>
+    <li>Give it a name such as <i>Code Analyzer</i> and a short description.</li>
+    <li>Skip generated topics or knowledge sources. This agent works through tools.</li>
+  </ol>
+  <div class="mock" aria-hidden="true">
+    <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; Copilot Studio &rsaquo; Create agent</div>
+    <div class="mock-body">
+      <div class="field"><small>Name</small><div class="input">Code Analyzer</div></div>
+      <div class="field"><small>Description</small><div class="input">Reads and edits files in my code workspaces.</div></div>
+      <div class="mock-row"><span class="btn">Create</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="num">4</span>Add the MCP server as a tool</h2>
+  <p>In the agent, go to <b>Tools</b> and choose <b>Add</b> &rarr; <b>Model Context Protocol</b>. This opens the MCP onboarding wizard.</p>
+  <h3>4a. Fill in the server details</h3>
+  <ol class="steps">
+    <li><b>Server name</b>: <i>M365 Code Analyzer MCP</i>.</li>
+    <li><b>Server description</b>: <i>Read, list and write files in named code workspaces.</i></li>
+    <li><b>Server URL</b>: <code>https://&lt;tunnel-host&gt;/mcp</code>. The <code>/mcp</code> suffix is required.</li>
+    <li><b>Authentication</b>: choose <b>API key</b>, set <b>Type</b> to <b>Header</b> and <b>Header name</b> to <code>api-key</code>.</li>
+    <li>Choose <b>Create</b>.</li>
+  </ol>
+  <div class="mock" aria-hidden="true">
+    <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; Tools &rsaquo; Add &rsaquo; Model Context Protocol</div>
+    <div class="mock-body">
+      <div class="field"><small>Server name</small><div class="input">M365 Code Analyzer MCP</div></div>
+      <div class="field"><small>Server description</small><div class="input">Read, list and write files in named code workspaces.</div></div>
+      <div class="field"><small>Server URL</small><div class="input">https://abc123-8790.euw.devtunnels.ms/mcp</div></div>
+      <div class="mock-row">
+        <div class="field"><small>Authentication</small><div class="input">API key</div></div>
+        <div class="field"><small>Type</small><div class="input">Header</div></div>
+        <div class="field"><small>Header name</small><div class="input">api-key</div></div>
+      </div>
+      <div class="mock-row"><span class="btn">Create</span></div>
+    </div>
+  </div>
+  <p class="note">Illustration only.</p>
+  <h3>4b. Create the connection and add the tool</h3>
+  <ol class="steps">
+    <li>On the next screen choose <b>Create new connection</b> and paste the <code>MCP_API_KEY</code> value when asked.</li>
+    <li>Return to the wizard and choose <b>Add and configure</b> (or <b>Add to agent</b>).</li>
+  </ol>
+  <div class="callout tip"><b>If the wizard has no way to add the conversation-id header</b>Step 5 needs a <code>conversation-id</code> input on the tool. If you cannot add it to the wizard-created tool, import <code>docs/copilot-studio-connector.yaml</code> as a custom connector instead (set <code>host</code> to your tunnel host, no <code>https://</code>) and add that connector to the agent. It already declares both the <code>api-key</code> and <code>conversation-id</code> headers. Without a conversation id the agent still works, but use the <code>workspace</code>-argument instructions in step 6.</div>
+  <p>The agent should now list the server's eight tools:</p>
+  <div class="mock" aria-hidden="true">
+    <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; Agent &rsaquo; Tools &nbsp;<span class="pill">Connected</span></div>
+    <div class="mock-body">
+      <div class="tool"><div><b>List workspaces</b><span>Registered workspaces, default and this chat's current one</span></div><i class="toggle"></i></div>
+      <div class="tool"><div><b>Switch workspace</b><span>Bind this chat to a workspace</span></div><i class="toggle"></i></div>
+      <div class="tool"><div><b>Current workspace</b><span>Which workspace this chat uses and why</span></div><i class="toggle"></i></div>
+      <div class="tool"><div><b>List files</b><span>Glob within the workspace</span></div><i class="toggle"></i></div>
+      <div class="tool"><div><b>Read file</b><span>Read a UTF-8 text file</span></div><i class="toggle"></i></div>
+      <div class="tool"><div><b>Write file</b><span>Create or overwrite a text file</span></div><i class="toggle"></i></div>
+      <div class="tool"><div><b>Add workspace / Remove workspace</b><span>Register or unregister a folder</span></div><i class="toggle"></i></div>
+    </div>
+  </div>
+  <div class="callout tip"><b>Tool names</b>The file tools are named <code>ws_read_file</code> and <code>ws_write_file</code> on purpose. The plain names <code>read_file</code> and <code>write_file</code> clash with the agent's built-in tools, and the call never reaches this server.</div>
+  <div class="callout warn"><b>Consider restricting writes</b>Turn off <i>Write file</i>, <i>Add workspace</i> and <i>Remove workspace</i> if the agent should only read code. Write calls are also audited at <code>GET /audit</code>.</div>
+</section>
+
+<section id="s5">
+  <h2><span class="num">5</span>Pass the chat's conversation id</h2>
+  <p>This is what lets each chat remember its own workspace, even across server restarts.</p>
+  <ol class="steps">
+    <li>In the agent, open <b>Tools</b>, select the MCP server you added, and look for its <b>Inputs</b>.</li>
+    <li><b>+ Add input</b> and pick <code>conversation-id</code>.</li>
+    <li>Set the value to <b>Custom value</b> and enter <code>System.Conversation.Id</code>.</li>
+  </ol>
+  <div class="mock" aria-hidden="true">
+    <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; Tool &rsaquo; Inputs</div>
+    <div class="mock-body">
+      <div class="mock-row">
+        <div class="field"><small>Input</small><div class="input">conversation-id</div></div>
+        <div class="field"><small>Fill using</small><div class="input">Custom value</div></div>
+        <div class="field"><small>Value</small><div class="input">System.Conversation.Id</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="callout bad"><b>Do not leave it empty</b>Without this input the server sees no conversation id. Every chat then shares the default workspace, or the agent has to pass <code>workspace</code> on every call.</div>
+</section>
+
+<section id="s6">
+  <h2><span class="num">6</span>Add instructions</h2>
+  <p>In the agent's <b>Instructions</b> field, paste:</p>
+<pre><code>You work with code workspaces through the "M365 Code Analyzer" tools
+(list_workspaces, switch_workspace, current_workspace, list_files, ws_read_file, ws_write_file).
+- Always use ws_read_file and ws_write_file for files. Never use any built-in file tool.
+- At the start of a task, if the user has not named a workspace, call list_workspaces and ask which to use.
+- When the user picks or changes a workspace, call switch_workspace with that alias.
+- Use paths relative to the workspace root. Call list_files first if unsure of a path.
+- Every tool reply starts with [workspace: &lt;alias&gt;]. If that is not the workspace the user expects, stop and ask.
+- Before ws_write_file, show the user the intended change and the target path, and wait for approval.</code></pre>
+  <div class="callout tip"><b>Fallback when no conversation id is sent</b>If your channel does not provide a conversation id (for example Microsoft 365 Copilot declarative agents), use <code>docs/m365-agent-instructions.md</code> instead. It tells the agent to pass the <code>workspace</code> alias on every call.</div>
+</section>
+
+<section id="s7">
+  <h2><span class="num">7</span>Test it</h2>
+  <p>Use the <b>Test your agent</b> pane. A good first run proves the tools, the key, and the per-chat workspace:</p>
+  <div class="mock" aria-hidden="true">
+    <div class="mock-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; Test your agent</div>
+    <div class="mock-body chat">
+      <div class="msg user">Which workspaces do you have?</div>
+      <div class="msg call">list_workspaces &rarr; app (default), docs</div>
+      <div class="msg bot">I have two workspaces: <b>app</b> (default) and <b>docs</b>. Which one should I use?</div>
+      <div class="msg user">docs. Show me README.md</div>
+      <div class="msg call">switch_workspace {alias: "docs"}<br>ws_read_file {filePath: "README.md"}</div>
+      <div class="msg bot">[workspace: docs] README.md &hellip;</div>
+    </div>
+  </div>
+  <p>Then open a second chat and confirm it starts on the default workspace, not <i>docs</i>. That confirms the conversation id is working.</p>
+  <div class="callout tip"><b>Watch the server</b>Every tool call appears in <code>GET /audit?limit=20</code> (send the <code>api-key</code> header). Failed reads also log a line to the server's stderr.</div>
+</section>
+
+<section id="s8">
+  <h2><span class="num">8</span>Publish</h2>
+  <ol class="steps">
+    <li>Choose <b>Publish</b> at the top right and confirm.</li>
+    <li>Under <b>Channels</b> enable <b>Teams and Microsoft 365 Copilot</b> (or your target channel).</li>
+    <li>Authorize or share the agent with the people who need it.</li>
+  </ol>
+  <p>The Test pane uses the draft. Teams and other channels only see what you have published.</p>
+</section>
+
+<section id="extras">
+  <h2>Optional: browser and command tools</h2>
+  <p>Let the agent start your app, look at it and debug it. Both groups are <b>off by default</b>; enable them in <code>.env</code> and restart the server:</p>
+  <pre><code>ENABLE_BROWSER=true
+RUN_ALLOWED_COMMANDS="npm run dev;npm run build;npm test"</code></pre>
+  <div class="card">
+    <svg viewBox="0 0 860 120" role="img" aria-label="Flow: run_command starts the dev server, browser_open loads it, browser_screenshot and browser_eval inspect it, process_stop ends it.">
+      <defs><marker id="ah3" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+      <rect class="hl" x="10" y="25" width="150" height="70" rx="10"/><text class="lbl" x="85" y="56" text-anchor="middle">run_command</text><text class="sub" x="85" y="76" text-anchor="middle">npm run dev (background)</text>
+      <rect class="box" x="205" y="25" width="150" height="70" rx="10"/><text class="lbl" x="280" y="56" text-anchor="middle">browser_open</text><text class="sub" x="280" y="76" text-anchor="middle">http://localhost:5173/</text>
+      <rect class="box" x="400" y="25" width="200" height="70" rx="10"/><text class="lbl" x="500" y="56" text-anchor="middle">screenshot / text / eval</text><text class="sub" x="500" y="76" text-anchor="middle">click, type, browser_logs</text>
+      <rect class="hl" x="645" y="25" width="150" height="70" rx="10"/><text class="lbl" x="720" y="56" text-anchor="middle">process_stop</text><text class="sub" x="720" y="76" text-anchor="middle">when finished</text>
+      <path class="line" d="M160 60 H203" marker-end="url(#ah3)"/><path class="line" d="M355 60 H398" marker-end="url(#ah3)"/><path class="line" d="M600 60 H643" marker-end="url(#ah3)"/>
+    </svg>
+  </div>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>run_command</code>, <code>process_output</code>, <code>process_stop</code>, <code>list_processes</code></td><td>Run allowlisted commands; background mode for dev servers (<code>readyText</code> returns once the server prints e.g. "Local:").</td></tr>
+      <tr><td><code>browser_open</code>, <code>browser_screenshot</code></td><td>Open a page and capture it. The PNG is returned and saved to <code>.screenshots/</code> in the workspace.</td></tr>
+      <tr><td><code>browser_text</code>, <code>browser_click</code>, <code>browser_type</code></td><td>Read and drive the page by CSS or <code>text=</code> selectors.</td></tr>
+      <tr><td><code>browser_eval</code>, <code>browser_logs</code></td><td>Run JavaScript in the page; read console errors and failed requests.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>After restarting the server, refresh the MCP tool in the agent so the new tools appear, enable the ones you want, and <b>Publish</b>. Add a line to the instructions such as: <i>"To check the UI, start the app with run_command (background), open it with browser_open, take a browser_screenshot, and stop the process when done."</i></p>
+  <div class="callout warn"><b>Security</b>The browser only loads <code>localhost</code> unless you extend <code>BROWSER_ALLOWED_HOSTS</code>, and page scripts from <code>browser_eval</code> are held to the same limit. Commands must start with an allowlisted entry and may not contain shell operators or quotes. Never allowlist <code>node</code>, <code>python</code> or <code>powershell</code>. Anyone with the API key can run the allowlisted commands, so keep the key private. Copilot Studio may not display the returned screenshot image; the saved file is the fallback.</div>
+</section>
+
+<section id="how">
+  <h2>How a chat's workspace is chosen</h2>
+  <p>On every tool call the server checks these in order and stops at the first match:</p>
+  <div class="card">
+    <svg viewBox="0 0 860 150" role="img" aria-label="Workspace resolution order: workspace argument, then chat binding by conversation id, then default workspace.">
+      <defs><marker id="ah2" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+      <rect class="hl" x="10" y="30" width="250" height="90" rx="10"/>
+      <text class="lbl" x="135" y="62" text-anchor="middle">1. "workspace" argument</text>
+      <text class="sub" x="135" y="84" text-anchor="middle">alias passed in the tool call</text>
+      <text class="sub" x="135" y="102" text-anchor="middle">(M365 Copilot agents)</text>
+      <rect class="box" x="305" y="30" width="250" height="90" rx="10"/>
+      <text class="lbl" x="430" y="62" text-anchor="middle">2. Chat binding</text>
+      <text class="sub" x="430" y="84" text-anchor="middle">saved per conversation id</text>
+      <text class="sub" x="430" y="102" text-anchor="middle">(Copilot Studio / Teams)</text>
+      <rect class="box" x="600" y="30" width="250" height="90" rx="10"/>
+      <text class="lbl" x="725" y="62" text-anchor="middle">3. Default workspace</text>
+      <text class="sub" x="725" y="84" text-anchor="middle">DEFAULT_WORKSPACE or</text>
+      <text class="sub" x="725" y="102" text-anchor="middle">switch_workspace makeDefault</text>
+      <path class="line" d="M260 75 H303" marker-end="url(#ah2)"/>
+      <path class="line" d="M555 75 H598" marker-end="url(#ah2)"/>
+      <text class="sub" x="282" y="66" text-anchor="middle">else</text>
+      <text class="sub" x="577" y="66" text-anchor="middle">else</text>
+    </svg>
+  </div>
+  <p>Bindings survive server restarts and expire after <code>BINDING_TTL_DAYS</code> (30) of inactivity. If a file is not found in the default workspace and the chat made no choice, a read searches the other workspaces and uses the single match.</p>
+</section>
+
+<section id="updates">
+  <h2>When something changes</h2>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>What changed</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr><td>Server code, no tool or schema change</td><td>Restart the server. No Copilot Studio action.</td></tr>
+      <tr><td>Workspaces, <code>.env</code> paths, limits</td><td>Restart the server.</td></tr>
+      <tr><td>Tool names, titles, descriptions or parameters</td><td>Restart the server, then refresh or re-add the tool in the agent, check the tools are still enabled, and <b>Publish</b>.</td></tr>
+      <tr><td>Connector YAML (host, headers)</td><td>Re-import the connector, then remove and re-add it in each agent, re-create the <code>conversation-id</code> input, and <b>Publish</b>.</td></tr>
+      <tr><td>Agent instructions or enabled tools</td><td><b>Publish</b>. The Test pane uses the draft; channels need the publish.</td></tr>
+      <tr><td>New tunnel host (tunnel restarted)</td><td>Update <code>host</code> in the connector and re-import. Use a persistent tunnel to avoid this.</td></tr>
+      <tr><td>API key rotated</td><td><code>npm run new-key</code>, restart the server, then update the connection's key in Copilot Studio.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="trouble">
+  <h2>Troubleshooting</h2>
+  <div class="table-scroll">
+  <table>
+    <thead><tr><th>Symptom</th><th>Likely cause and fix</th></tr></thead>
+    <tbody>
+      <tr><td>"Name clash with built-in read_file", or reads always say "file not found"</td><td>An old build or cached tool list is registering <code>read_file</code>. Restart the server, refresh the tool, publish. Confirm the instructions say <code>ws_read_file</code>.</td></tr>
+      <tr><td><code>401 Unauthorized</code></td><td>Wrong or missing key. The connection must send header <code>api-key</code>. Re-create the connection with the current <code>MCP_API_KEY</code>.</td></tr>
+      <tr><td>Tools never load or time out</td><td>Tunnel is down, or the host in the connector is stale. Test <code>https://&lt;host&gt;/health</code>. The URL must end in <code>/mcp</code>.</td></tr>
+      <tr><td>Every chat uses the same workspace</td><td>The <code>conversation-id</code> input is missing or empty. Set it to <code>System.Conversation.Id</code> (step 5).</td></tr>
+      <tr><td>"File not found" for a file that exists</td><td>Wrong workspace. Ask the agent to run <code>current_workspace</code>. Use paths relative to the workspace root, no quotes.</td></tr>
+      <tr><td>"File not found in the default workspace … exists in: a, b"</td><td>The file is in several workspaces. Tell the agent which one, or switch first.</td></tr>
+      <tr><td>Workspace path looks cut off at startup</td><td>An unquoted <code>#</code> in <code>.env</code>. Wrap the whole value in double quotes.</td></tr>
+      <tr><td>Server will not start</td><td><code>MCP_API_KEY</code> is empty. Run <code>npm run new-key</code>.</td></tr>
+      <tr><td>Agent writes to the wrong place</td><td>Tighten instructions to require confirmation of workspace and path, or disable the write tool.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<footer>
+  Server reference: <code>README.md</code> &middot; Connector: <code>docs/copilot-studio-connector.yaml</code> &middot; M365 Copilot instructions: <code>docs/m365-agent-instructions.md</code>
+</footer>
+
+</div>
+</body>
+</html>
