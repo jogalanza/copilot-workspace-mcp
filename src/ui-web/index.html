@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Copilot Workspace MCP</title>
+<!-- Tailwind is compiled at build time (scripts/build-standalone.mjs) and inlined here: no CDN, works offline. -->
+<style>/*__TAILWIND__*/</style>
+</head>
+<body class="h-dvh flex flex-col overflow-x-hidden bg-slate-100 text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-200">
+
+<header class="border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+  <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <div class="flex items-center gap-2.5">
+      <div class="grid size-8 place-items-center rounded-lg bg-indigo-600 text-sm font-bold text-white">M</div>
+      <h1 class="text-sm font-semibold leading-tight">Copilot Workspace MCP<span id="ver" class="block text-xs font-normal text-slate-500 dark:text-slate-400"></span></h1>
+    </div>
+
+    <span id="pill" class="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium dark:border-slate-700">
+      <i id="dot" class="size-2 rounded-full bg-slate-400"></i><span id="tstate">connecting</span>
+    </span>
+
+    <div class="flex min-w-0 flex-1 basis-full flex-col gap-1.5 text-xs sm:basis-auto sm:flex-row sm:items-center sm:gap-4">
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="w-11 shrink-0 text-slate-500 dark:text-slate-400">Public</span>
+        <code id="pub" class="truncate rounded bg-slate-100 px-2 py-1 font-mono dark:bg-slate-800">-</code>
+        <button id="cpub" class="shrink-0 rounded-md border border-slate-300 px-2 py-1 font-medium hover:border-indigo-500 hover:text-indigo-600 disabled:opacity-40 disabled:hover:border-slate-300 disabled:hover:text-inherit dark:border-slate-700 dark:hover:text-indigo-400">Copy</button>
+      </div>
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="w-11 shrink-0 text-slate-500 dark:text-slate-400">Local</span>
+        <code id="loc" class="truncate rounded bg-slate-100 px-2 py-1 font-mono dark:bg-slate-800">-</code>
+      </div>
+    </div>
+
+    <div class="flex w-full gap-2 sm:ml-auto sm:w-auto">
+      <button id="cfg" class="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:border-indigo-500 hover:text-indigo-600 sm:flex-none dark:border-slate-700 dark:hover:text-indigo-400">Settings</button>
+      <button id="rst" class="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:border-indigo-500 hover:text-indigo-600 disabled:opacity-40 sm:flex-none dark:border-slate-700 dark:hover:text-indigo-400">Restart tunnel</button>
+      <button id="stop" class="flex-1 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 sm:flex-none">Stop</button>
+    </div>
+  </div>
+</header>
+
+<div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-white/60 px-4 py-2 text-sm dark:border-slate-800 dark:bg-slate-900/60">
+  <div class="flex flex-wrap gap-1.5">
+    <label class="cursor-pointer"><input type="checkbox" class="lv peer sr-only" value="error" checked><span class="inline-block rounded-full border border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500 peer-checked:border-red-500 peer-checked:bg-red-500/10 peer-checked:text-red-600 peer-focus-visible:ring-2 dark:border-slate-700 dark:peer-checked:text-red-400">error</span></label>
+    <label class="cursor-pointer"><input type="checkbox" class="lv peer sr-only" value="warn" checked><span class="inline-block rounded-full border border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500 peer-checked:border-amber-500 peer-checked:bg-amber-500/10 peer-checked:text-amber-700 peer-focus-visible:ring-2 dark:border-slate-700 dark:peer-checked:text-amber-400">warn</span></label>
+    <label class="cursor-pointer"><input type="checkbox" class="lv peer sr-only" value="info" checked><span class="inline-block rounded-full border border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500 peer-checked:border-sky-500 peer-checked:bg-sky-500/10 peer-checked:text-sky-700 peer-focus-visible:ring-2 dark:border-slate-700 dark:peer-checked:text-sky-400">info</span></label>
+    <label class="cursor-pointer"><input type="checkbox" class="lv peer sr-only" value="debug"><span class="inline-block rounded-full border border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500 peer-checked:border-slate-500 peer-checked:bg-slate-500/10 peer-checked:text-slate-700 peer-focus-visible:ring-2 dark:border-slate-700 dark:peer-checked:text-slate-300">debug</span></label>
+  </div>
+  <select id="src" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900">
+    <option value="">all sources</option><option>launcher</option><option>server</option><option>tunnel</option>
+  </select>
+  <input id="q" type="search" placeholder="Filter text..." class="min-w-0 flex-1 basis-40 rounded-lg border border-slate-300 bg-white px-3 py-1 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900">
+  <div class="ml-auto flex flex-wrap items-center gap-2">
+    <label class="flex cursor-pointer items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400"><input id="follow" type="checkbox" checked class="accent-indigo-600"> auto-scroll</label>
+    <button id="pause" class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium hover:border-indigo-500 dark:border-slate-700">Pause</button>
+    <button id="dl" class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium hover:border-indigo-500 dark:border-slate-700">Download</button>
+    <button id="clr" class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium hover:border-red-500 hover:text-red-600 dark:border-slate-700 dark:hover:text-red-400">Clear</button>
+  </div>
+</div>
+
+<main id="log" class="min-h-0 flex-1 overflow-auto bg-white px-2 py-2 font-mono text-[12.5px] leading-relaxed sm:px-4 dark:bg-slate-950"></main>
+
+<footer class="flex flex-wrap gap-x-5 gap-y-1 border-t border-slate-200 bg-white px-4 py-1.5 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+  <span id="count"></span><span id="errs"></span><span id="up" class="sm:ml-auto"></span>
+</footer>
+
+<dialog id="dlg" class="m-auto h-full max-h-[100dvh] w-full max-w-none overflow-hidden rounded-none border border-slate-200 bg-white p-0 text-slate-800 shadow-2xl backdrop:bg-slate-950/60 sm:h-auto sm:max-h-[88vh] sm:w-[min(860px,94vw)] sm:rounded-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+  <div class="flex h-full max-h-[inherit] flex-col sm:max-h-[88vh]">
+    <div class="flex items-center gap-3 border-b border-slate-200 px-5 py-3 dark:border-slate-800">
+      <h2 class="text-base font-semibold">Settings</h2>
+      <span id="cfile" class="ml-auto truncate text-xs text-slate-500 dark:text-slate-400"></span>
+    </div>
+    <div id="vars" class="min-h-0 flex-1 divide-y divide-slate-200 overflow-auto px-5 dark:divide-slate-800"></div>
+    <div class="flex flex-wrap items-center gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-800">
+      <button id="addvar" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:border-indigo-500 dark:border-slate-700">Add variable</button>
+      <span id="msg" class="order-last w-full text-xs text-slate-500 sm:order-none sm:w-auto sm:flex-1 dark:text-slate-400">Saving restarts the MCP server (a few seconds of downtime).</span>
+      <button id="cancel" class="ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:border-slate-500 sm:ml-0 dark:border-slate-700">Close</button>
+      <button id="save" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">Save &amp; apply</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  var $ = function (i) { return document.getElementById(i); };
+  var all = [], paused = false, state = null, logEl = $('log'), MAX = 5000;
+
+  // Full class strings (not built dynamically) so Tailwind's scanner can see them.
+  var LEVEL = {
+    error: 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-300',
+    warn: 'border-amber-500 bg-amber-500/10 text-amber-800 dark:text-amber-300',
+    info: 'border-transparent text-slate-800 dark:text-slate-200',
+    debug: 'border-transparent text-slate-400 dark:text-slate-500'
+  };
+  var SRC = {
+    launcher: 'text-violet-600 dark:text-violet-400',
+    server: 'text-sky-600 dark:text-sky-400',
+    tunnel: 'text-teal-600 dark:text-teal-400'
+  };
+  var DOT = {
+    running: 'bg-emerald-500', starting: 'bg-amber-500 animate-pulse', restarting: 'bg-amber-500 animate-pulse',
+    stopped: 'bg-red-500', disabled: 'bg-slate-400'
+  };
+  var BTN = 'rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:border-indigo-500 dark:border-slate-700';
+  var INPUT = 'min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-mono text-[12.5px] focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-950';
+
+  function post(p) { return fetch(p, { method: 'POST', headers: { 'x-cwm': '1' } }); }
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function fmt(ts) { var d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+  function levels() { var s = {}; document.querySelectorAll('.lv').forEach(function (c) { if (c.checked) s[c.value] = 1; }); return s; }
+  function visible(e) {
+    return levels()[e.level] && (!$('src').value || $('src').value === e.source) &&
+      (!$('q').value || e.text.toLowerCase().indexOf($('q').value.toLowerCase()) >= 0);
+  }
+  function row(e) {
+    var d = document.createElement('div');
+    d.className = 'flex gap-2 whitespace-pre-wrap break-words rounded-sm border-l-[3px] px-2 py-px ' + LEVEL[e.level];
+    var t = document.createElement('span');
+    t.className = 'shrink-0 select-none text-slate-400 dark:text-slate-500';
+    t.textContent = fmt(e.ts);
+    var s = document.createElement('span');
+    s.className = 'hidden w-16 shrink-0 select-none font-semibold sm:inline ' + SRC[e.source];
+    s.textContent = e.source;
+    var x = document.createElement('span');
+    x.className = 'min-w-0 flex-1';
+    x.textContent = e.text;
+    d.appendChild(t); d.appendChild(s); d.appendChild(x);
+    return d;
+  }
+  function scroll() { if ($('follow').checked) logEl.scrollTop = logEl.scrollHeight; }
+  function render() {
+    logEl.textContent = '';
+    var n = 0, f = document.createDocumentFragment();
+    all.forEach(function (e) { if (visible(e)) { f.appendChild(row(e)); n++; } });
+    if (!n) {
+      var m = document.createElement('div');
+      m.className = 'empty py-16 text-center text-sm text-slate-400';
+      m.textContent = all.length ? 'No lines match the filters.' : 'No log lines yet.';
+      f.appendChild(m);
+    }
+    logEl.appendChild(f); scroll();
+    $('count').textContent = n + ' of ' + all.length + ' lines';
+  }
+  function add(e) {
+    all.push(e); if (all.length > MAX) all.shift();
+    if (paused) return;
+    if (visible(e)) { var em = logEl.querySelector('.empty'); if (em) em.remove(); logEl.appendChild(row(e)); scroll(); }
+    $('count').textContent = all.length + ' lines';
+  }
+
+  var es = new EventSource('/api/stream');
+  es.addEventListener('snapshot', function (m) { all = JSON.parse(m.data); render(); });
+  es.addEventListener('log', function (m) { add(JSON.parse(m.data)); });
+  es.addEventListener('clear', function () { all = []; render(); });
+  document.querySelectorAll('.lv').forEach(function (c) { c.onchange = render; });
+  $('src').onchange = render; $('q').oninput = render;
+  $('clr').onclick = function () { post('/api/clear'); };
+  $('rst').onclick = function () { post('/api/tunnel/restart'); };
+  $('stop').onclick = function () {
+    if (confirm('Stop the server and tunnel and exit?')) post('/api/stop').then(function () {
+      es.close(); document.body.innerHTML = '<p class="p-8 text-center text-slate-500">Stopped. You can close this window.</p>';
+    });
+  };
+  $('pause').onclick = function () { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; if (!paused) render(); };
+  $('cpub').onclick = function () { if (state && state.publicUrl) navigator.clipboard.writeText(state.publicUrl.replace(/\/$/, '') + '/mcp'); };
+  $('dl').onclick = function () {
+    var txt = all.map(function (e) { return new Date(e.ts).toISOString() + ' [' + e.source + '] ' + e.level.toUpperCase() + ' ' + e.text; }).join('\n');
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }));
+    a.download = 'copilot-workspace-mcp.log'; a.click();
+  };
+
+  // ---- settings dialog ----
+  var orig = {}, dlg = $('dlg');
+  function varRow(v, custom) {
+    var d = document.createElement('div'); d.className = 'var py-3'; d.dataset.key = v.key;
+    var k = document.createElement('div'); k.className = 'font-mono text-[12.5px] font-semibold';
+    if (custom) { var ki = document.createElement('input'); ki.placeholder = 'VARIABLE_NAME'; ki.className = 'nk ' + INPUT; k.appendChild(ki); }
+    else k.textContent = v.key;
+    var r = document.createElement('div'); r.className = 'mt-1.5 flex gap-2';
+    var i = document.createElement('input'); i.className = 'val ' + INPUT; i.type = v.secret ? 'password' : 'text';
+    i.value = v.value; i.autocomplete = 'off';
+    i.placeholder = v.secret && v.set ? '(set - hidden; type to replace)' : v.default ? '(default: ' + v.default + ')' : '(not set)';
+    r.appendChild(i);
+    if (v.secret) {
+      var sh = document.createElement('button'); sh.className = BTN; sh.textContent = 'Show';
+      sh.onclick = function () {
+        if (i.type === 'text') { i.type = 'password'; sh.textContent = 'Show'; return; }
+        fetch('/api/config?reveal=1').then(function (x) { return x.json(); }).then(function (c) {
+          c.vars.forEach(function (q) { if (q.key === v.key && !i.dataset.touched) { i.value = q.value; orig[v.key] = q.value; } });
+          i.type = 'text'; sh.textContent = 'Hide';
+        });
+      };
+      var g = document.createElement('button'); g.className = BTN; g.textContent = 'Generate';
+      g.onclick = function () {
+        var b = new Uint8Array(32); crypto.getRandomValues(b);
+        i.value = btoa(String.fromCharCode.apply(null, b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        i.dataset.touched = '1'; i.type = 'text';
+      };
+      r.appendChild(sh); r.appendChild(g);
+    }
+    i.oninput = function () { i.dataset.touched = '1'; };
+    d.appendChild(k); d.appendChild(r);
+    if (v.description) { var ds = document.createElement('p'); ds.className = 'mt-1.5 text-xs text-slate-500 dark:text-slate-400'; ds.textContent = v.description; d.appendChild(ds); }
+    if (v.overriddenBy) { var o = document.createElement('p'); o.className = 'mt-1 text-xs text-amber-600 dark:text-amber-400'; o.textContent = 'Overridden by ' + v.overriddenBy + ' - changes here will not take effect until that is removed.'; d.appendChild(o); }
+    return d;
+  }
+  function setMsg(t, kind) {
+    var m = $('msg'); m.textContent = t;
+    m.className = 'order-last w-full text-xs sm:order-none sm:w-auto sm:flex-1 ' +
+      (kind === 'err' ? 'text-red-600 dark:text-red-400' : kind === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400');
+  }
+  $('cfg').onclick = function () {
+    fetch('/api/config').then(function (r) { return r.json(); }).then(function (c) {
+      $('cfile').textContent = c.file; var box = $('vars'); box.textContent = ''; orig = {};
+      c.vars.forEach(function (v) { orig[v.key] = v.value; box.appendChild(varRow(v, false)); });
+      setMsg('Saving restarts the MCP server (a few seconds of downtime).'); dlg.showModal();
+    });
+  };
+  $('addvar').onclick = function () {
+    var r = varRow({ key: '', value: '', set: false, secret: false, description: '' }, true);
+    $('vars').appendChild(r); r.querySelector('.nk').focus(); r.scrollIntoView();
+  };
+  $('cancel').onclick = function () { dlg.close(); };
+  $('save').onclick = function () {
+    var set = {}, remove = [];
+    document.querySelectorAll('#vars .var').forEach(function (d) {
+      var key = d.dataset.key || (d.querySelector('.nk') ? d.querySelector('.nk').value.trim() : '');
+      var inp = d.querySelector('.val'); if (!key) return;
+      if (inp.dataset.touched || (!(key in orig) && inp.value) || (key in orig && inp.value !== orig[key] && !(inp.type === 'password' && !inp.dataset.touched))) {
+        if (inp.value === '') remove.push(key); else set[key] = inp.value;
+      }
+    });
+    setMsg('Applying...'); $('save').disabled = true;
+    fetch('/api/config', { method: 'POST', headers: { 'x-cwm': '1', 'content-type': 'application/json' }, body: JSON.stringify({ set: set, remove: remove }) })
+      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        $('save').disabled = false;
+        if (r.ok) { setMsg('Saved and applied.', 'ok'); setTimeout(function () { dlg.close(); }, 900); } else setMsg(r.error || 'Failed', 'err');
+      })
+      .catch(function () { $('save').disabled = false; setMsg('Request failed', 'err'); });
+  };
+
+  // ---- status ----
+  function up(s) { var m = Math.floor(s / 60); return m < 60 ? m + 'm' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; }
+  function poll() {
+    fetch('/api/state').then(function (r) { return r.json(); }).then(function (s) {
+      state = s; $('dot').className = 'size-2 rounded-full ' + DOT[s.tunnel]; $('tstate').textContent = 'Tunnel ' + s.tunnel;
+      $('pub').textContent = s.publicUrl ? s.publicUrl.replace(/\/$/, '') + '/mcp' : '-';
+      $('loc').textContent = 'http://localhost:' + s.mcpPort + '/mcp'; $('cpub').disabled = !s.publicUrl; $('rst').disabled = s.tunnel === 'disabled';
+      $('errs').textContent = s.errors + ' error(s) in buffer'; $('up').textContent = 'up ' + up((Date.now() - s.startedAt) / 1000);
+      $('ver').textContent = 'v' + s.version;
+    }).catch(function () { $('tstate').textContent = 'Disconnected'; $('dot').className = 'size-2 rounded-full ' + DOT.stopped; });
+  }
+  poll(); setInterval(poll, 3000);
+})();
+</script>
+</body>
+</html>

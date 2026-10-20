@@ -75,6 +75,14 @@ export function createApp(deps: McpDeps) {
     if (!config.apiKey) return next(); // only possible with MCP_ALLOW_ANONYMOUS=true (enforced at startup)
     const provided = extractApiKey(req.headers, req.query);
     if (provided && safeEqual(provided, config.apiKey)) return next();
+    // Never log the key itself; only say which of the two failure modes this was.
+    console.error(
+      '[copilot-mcp]',
+      `401 ${req.method} ${req.path}: ` +
+        (provided
+          ? `API key did not match (received ${provided.length} chars; check for pasted spaces or an old key)`
+          : 'no API key received (expected header "api-key", "Authorization: Bearer <key>" or ?api_key=)'),
+    );
     res.status(401).json({ error: 'Missing or invalid API key.' });
   };
 

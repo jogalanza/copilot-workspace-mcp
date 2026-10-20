@@ -13,7 +13,13 @@
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "node --import tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "new-key": "node scripts/new-api-key.mjs",
-    "audit": "npm audit --omit=dev"
+    "audit": "npm audit --omit=dev",
+    "build:standalone": "node scripts/build-standalone.mjs",
+    "build:standalone:linux": "node scripts/build-standalone.mjs linux",
+    "build:standalone:mac": "node scripts/build-standalone.mjs mac",
+    "build:standalone:all": "node scripts/build-standalone.mjs all",
+    "package": "node scripts/build-standalone.mjs all && node scripts/package-release.mjs",
+    "package:current": "node scripts/build-standalone.mjs && node scripts/package-release.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
@@ -23,8 +29,12 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
     "@types/express": "5.0.6",
     "@types/node": "26.6.5",
+    "esbuild": "0.28.2",
+    "postject": "1.0.0-alpha.6",
+    "tailwindcss": "4.3.3",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   }

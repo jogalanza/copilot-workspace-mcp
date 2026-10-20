@@ -17,6 +17,69 @@ npm test                      # unit + end-to-end tests
 Requires Node.js >= 22.13. Expose port 8790 with a dev tunnel and register
 `https://<tunnel-host>/mcp` in the client (the `/mcp` suffix is required).
 
+## Standalone executable (download, run, done)
+
+A single-file app that sets everything up for you: no clone, no `npm install`, no build, no manual tunnel.
+
+### Download and run
+
+Get the archive for your system from the [latest release](https://github.com/jogalanza/copilot-workspace-mcp/releases/latest),
+unpack it and run the executable inside. Each archive also contains a short `README.txt`; `SHA256SUMS.txt` is on the release page.
+
+| System | Archive | Run |
+|---|---|---|
+| Windows (x64) | `copilot-workspace-mcp-v<version>-windows-x64.zip` | double-click `copilot-workspace-mcp.exe` (SmartScreen: *More info > Run anyway*, the app is not code-signed) |
+| macOS (Apple silicon / Intel) | `...-macos-arm64.tar.gz` / `...-macos-x64.tar.gz` | `xattr -d com.apple.quarantine ./copilot-workspace-mcp && ./copilot-workspace-mcp` (if macOS still refuses: `codesign --sign - ./copilot-workspace-mcp`) |
+| Linux (x64 / arm64) | `...-linux-x64.tar.gz` / `...-linux-arm64.tar.gz` | `./copilot-workspace-mcp` |
+
+On first run it:
+
+1. asks for the workspace folder to expose (default: current folder) and generates an API key, saved in
+   `%APPDATA%\copilot-workspace-mcp\config.env` (Windows) or `~/.config/copilot-workspace-mcp/config.env`
+2. downloads the `devtunnel` CLI into that folder if it is not on PATH, and signs you in if needed
+3. creates a persistent tunnel (same public URL on every run), starts the server and hosts the tunnel
+4. prints the public `https://.../mcp` URL and the API key (key shown on first run or with `--show-key`)
+
+A local web UI (default http://localhost:8791, loopback only) opens automatically in its own app-style window using the
+installed Edge/Chrome, or the default browser if there is none (`--no-ui` / `--no-open`). It shows colour-coded live logs with
+level/source/text filters, pause, clear and download, tunnel status with a restart button, **Settings** for every variable in
+`config.env` (saving validates and restarts the server in place), and a Stop button. Ctrl+C, closing the console or Stop shuts
+down the tunnel first, then the server, cleanly. The browser tools (`browser_*`) are on by default; set `ENABLE_BROWSER=false` to disable them.
+
+The tunnel allows anonymous clients by default (Copilot Studio / M365 Copilot cannot sign in to a dev tunnel; the API key still
+protects `/mcp`). Set `TUNNEL_ALLOW_ANONYMOUS=false` to restrict it to your own Microsoft account.
+
+The console shows only errors and important lines (add `--verbose` for all dev tunnel output). Other flags:
+`--reconfigure`, `--new-key`, `--show-key`, `--no-tunnel`, `--no-ui`, `--no-open`, `--help`. Any variable from `.env.example` can be
+set in `config.env`, in a `.env` in the folder you start it from, or in the environment (later wins).
+
+### Build it yourself
+
+Needs Node.js >= 24 and `npm install` once. The executable embeds the Node runtime of the machine (or target) it is built for.
+
+| Goal | Command | Output in `release/` |
+|---|---|---|
+| This machine's OS/arch | `npm run build:standalone` | `copilot-workspace-mcp-<platform>-<arch>[.exe]` |
+| Linux x64 + arm64 | `npm run build:standalone:linux` | `copilot-workspace-mcp-linux-x64`, `-linux-arm64` |
+| macOS Intel + Apple silicon | `npm run build:standalone:mac` | `copilot-workspace-mcp-darwin-x64`, `-darwin-arm64` |
+| Every target | `npm run build:standalone:all` | all of the above plus `win32-x64`, `win32-arm64` |
+| Any mix | `node scripts/build-standalone.mjs win32-x64 linux-arm64` | |
+| Download-ready archives | `npm run package` (all targets) or `npm run package:current` | `release/packages/*.zip`, `*.tar.gz`, `SHA256SUMS.txt` |
+
+Set `OUT_DIR=some/folder` to write somewhere other than `release/`.
+
+**Building on each OS.** Run `npm install` then `npm run build:standalone` on that machine. On macOS this also ad-hoc signs the binary
+(`codesign`, built into macOS), so it can run immediately on Apple silicon.
+
+**Cross-building from one machine.** Targets for another OS/arch download that platform's official Node runtime
+(same version as yours, cached in `.cache/node/`) and inject the app into it, so you can produce Linux and macOS binaries from Windows.
+Cross-built Linux and Windows binaries run as they are. Cross-built **macOS** binaries cannot be code-signed off a Mac, so on the Mac run
+once `codesign --sign - ./copilot-workspace-mcp` (the release archives avoid this because CI builds them on macOS runners).
+
+**Releases.** Pushing a tag such as `v1.3.0` runs `.github/workflows/release.yml`: it builds on Windows, Linux (x64 and arm64) and macOS
+(Intel and Apple silicon) runners, packages the archives with `scripts/package-release.mjs`, and attaches them and `SHA256SUMS.txt` to a GitHub release.
+The same workflow can be started by hand (*Actions > Release executables*) to get the archives as a build artifact without a release.
+
 ## How a chat's workspace is chosen
 
 For every tool call the server resolves the workspace in this order:
