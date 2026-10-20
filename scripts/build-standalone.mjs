@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { build } from 'esbuild';
+import { build as viteBuild } from 'vite';
 import { inject } from 'postject';
 import { buildShell } from './build-shell.mjs';
 
@@ -26,19 +27,16 @@ fs.rmSync(work, { recursive: true, force: true });
 fs.mkdirSync(work, { recursive: true });
 fs.mkdirSync(outDir, { recursive: true });
 
-// Web UI: compile Tailwind, then inline the CSS into src/ui-web/index.html when esbuild loads it.
-const tailwindBin = path.resolve('node_modules/@tailwindcss/cli/dist/index.mjs');
-execFileSync(process.execPath, [tailwindBin, '-i', 'src/ui-web/input.css', '-o', path.join(work, 'ui.css'), '--minify'], { stdio: 'inherit' });
-// Inter (variable, latin) is inlined as a data URI so the UI looks the same on every OS and works offline.
-const interWoff2 = fs.readFileSync('node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2').toString('base64');
-const uiFontCss = `@font-face{font-family:"Inter Variable";font-style:normal;font-display:swap;font-weight:100 900;src:url(data:font/woff2;base64,${interWoff2}) format("woff2")}`;
-const inlineUiCss = {
-  name: 'inline-ui-css',
+// Web UI: the Vite + React app in web/ is built to one self-contained index.html (JS, CSS and font inlined),
+// which src/uiPage.ts imports as the virtual module "virtual:ui-html".
+const uiDir = path.resolve(work, 'ui');
+await viteBuild({ configFile: path.resolve('web', 'vite.config.js'), build: { outDir: uiDir, emptyOutDir: true }, logLevel: 'warn' });
+const uiHtmlFile = path.join(uiDir, 'index.html');
+const inlineUiHtml = {
+  name: 'inline-ui-html',
   setup(b) {
-    b.onLoad({ filter: /ui-web[\\/]index\.html$/ }, (args) => ({
-      contents: fs.readFileSync(args.path, 'utf8').replace('/*__TAILWIND__*/', () => uiFontCss + fs.readFileSync(path.join(work, 'ui.css'), 'utf8')),
-      loader: 'text',
-    }));
+    b.onResolve({ filter: /^virtual:ui-html$/ }, () => ({ path: uiHtmlFile }));
+    b.onLoad({ filter: /[\\/]ui[\\/]index\.html$/ }, (args) => ({ contents: fs.readFileSync(args.path, 'utf8'), loader: 'text' }));
   },
 };
 
@@ -66,7 +64,7 @@ await build({
   format: 'cjs',
   target: 'node24',
   outfile: path.join(work, 'launcher.cjs'),
-  plugins: [inlineUiCss, inlinePlaywrightPackageJson],
+  plugins: [inlineUiHtml, inlinePlaywrightPackageJson],
   logLevel: 'warning',
   legalComments: 'none',
   // Only needed by playwright's Firefox/BiDi path; this app drives Chromium over CDP.

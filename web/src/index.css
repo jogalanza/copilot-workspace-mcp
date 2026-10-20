@@ -1,5 +1,13 @@
 @import "tailwindcss";
-@source "./index.html";
+
+/* Inter (variable, latin) is bundled and inlined so the UI looks the same on every OS and works offline. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2");
+}
 
 /* Dark, cinematic: frosted-glass panels lit by a soft overhead spotlight. */
 @theme {
