@@ -149,3 +149,46 @@ describe('workspace trend', () => {
     assert.ok(snap.since <= Date.now());
   });
 });
+
+describe('activity usage metrics', () => {
+  const callIn = async (conversation: string, name: string, args: unknown, result: Parameters<typeof activity.complete>[1]) => {
+    const calls = activity.recordBody({ method: 'tools/call', params: { name, arguments: args } }, { conversation });
+    await activity.track(calls, async () => activity.complete(name, result));
+  };
+
+  it('flags the same call repeated 3+ times in a chat, but not polling tools', async () => {
+    for (let i = 0; i < 3; i++) await callIn('loop-chat', 'ws_edit_file', { filePath: 'a.ts', oldString: 'x' }, { ok: false, ms: 1, error: 'no match', accessError: true });
+    for (let i = 0; i < 4; i++) await callIn('loop-chat', 'process_output', { id: 'p1' }, { ok: true, ms: 1 });
+    const loops = activity.statsSnapshot().loops.filter((l) => l.conversation === 'loop-chat');
+    assert.equal(loops.length, 1);
+    assert.equal(loops[0]!.tool, 'ws_edit_file');
+    assert.equal(loops[0]!.count, 3);
+    assert.equal(loops[0]!.failing, true);
+    await callIn('loop-chat', 'ws_edit_file', { filePath: 'a.ts', oldString: 'y' }, { ok: true, ms: 1 }); // different args resets the run
+  });
+
+  it('counts allowlist refusals (with the command), approvals and file changes', async () => {
+    const before = activity.statsSnapshot();
+    await callIn('c1', 'run_command', { command: 'powershell -File x.ps1' }, {
+      ok: false, ms: 1, accessError: true,
+      error: 'Command not on the allowlist (dotnet). If it is needed and safe, ask the user in chat to approve this exact command: "powershell -File x.ps1". Only after they agree, call run_command again with userApproved=true.',
+    });
+    await callIn('c1', 'run_command', { command: 'powershell -File x.ps1', userApproved: true }, { ok: true, ms: 1 });
+    await callIn('c1', 'ws_write_file', { filePath: 'new.txt', content: 'a' }, { ok: true, ms: 1, workspace: 'alpha' });
+    await callIn('c1', 'ws_edit_file', { filePath: 'new.txt', oldString: 'a', newString: 'b' }, { ok: true, ms: 1, workspace: 'alpha' });
+    await callIn('c1', 'ws_delete_file', { filePath: 'new.txt' }, { ok: true, ms: 1, workspace: 'alpha' });
+    const s = activity.statsSnapshot();
+    assert.equal(s.approvals.refused - before.approvals.refused, 1);
+    assert.equal(s.approvals.approved - before.approvals.approved, 1);
+    assert.ok(s.approvals.commands.some((c) => c.command === 'powershell -File x.ps1'));
+    assert.equal(s.files.edited - before.files.edited, 2);
+    assert.equal(s.files.deleted - before.files.deleted, 1);
+    assert.equal(s.files.distinct - before.files.distinct, 1);
+  });
+
+  it('lists running background processes from the registered source', () => {
+    activity.setProcessSource(() => [{ id: 'p9', command: 'dotnet run', workspace: 'alpha', startedAt: 1 }]);
+    assert.deepEqual(activity.statsSnapshot().processes, [{ id: 'p9', command: 'dotnet run', workspace: 'alpha', startedAt: 1 }]);
+    activity.setProcessSource(() => []);
+  });
+});

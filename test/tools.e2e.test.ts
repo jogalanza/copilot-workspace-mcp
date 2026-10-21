@@ -48,6 +48,32 @@ describe('MCP file-editing, search and to-do tools', () => {
   after(() => sb.cleanup());
   const file = (rel: string) => path.join(sb.workspaces.alpha, rel);
 
+  it('deletes files and folders inside the workspace only', async () => {
+    const srv = await startServer(config);
+    const chat = await connect(srv.url, 'conv-delete');
+    try {
+      await call(chat, 'switch_workspace', { workspace: 'alpha' });
+      await call(chat, 'ws_write_file', { filePath: 'tmp/a.txt', content: 'a' });
+      await call(chat, 'ws_write_file', { filePath: 'tmp/sub/b.txt', content: 'b' });
+
+      assert.match((await call(chat, 'ws_delete_file', { filePath: 'tmp/a.txt' })).text, /Deleted tmp\/a\.txt/);
+      assert.equal(fs.existsSync(file('tmp/a.txt')), false);
+      const notEmpty = await call(chat, 'ws_delete_file', { filePath: 'tmp' });
+      assert.equal(notEmpty.isError, true);
+      assert.match(notEmpty.text, /recursive=true/);
+      assert.equal((await call(chat, 'ws_delete_file', { filePath: 'tmp', recursive: true })).isError, false);
+      assert.equal(fs.existsSync(file('tmp')), false);
+
+      assert.equal((await call(chat, 'ws_delete_file', { filePath: 'nope.txt' })).isError, true);
+      assert.equal((await call(chat, 'ws_delete_file', { filePath: '../outside.txt' })).isError, true);
+      assert.equal((await call(chat, 'ws_delete_file', { filePath: '.' , recursive: true })).isError, true);
+      assert.equal((await call(chat, 'ws_delete_file', { filePath: '.git', recursive: true })).isError, true);
+    } finally {
+      await chat.close();
+      await srv.stop();
+    }
+  });
+
   it('edits, searches, edits notebooks and tracks to-dos per chat', async () => {
     const srv = await startServer(config);
     const chat = await connect(srv.url, 'conv-tools');

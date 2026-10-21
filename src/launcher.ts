@@ -11,6 +11,7 @@ import { loadConfig } from './config.js';
 import { KNOWN_VARS, LAUNCHER_DEFAULTS } from './envVars.js';
 import { LogBus, type LogLevel } from './logBus.js';
 import { SERVER_VERSION } from './mcpServer.js';
+import { runServiceCommand } from './service.js';
 import { startServer } from './server.js';
 import { startUi, type ConfigChange, type UiState } from './ui.js';
 
@@ -21,12 +22,16 @@ const isWin = process.platform === 'win32';
 const HELP = `${APP} - starts the MCP server and exposes it through a Microsoft dev tunnel.
 
 Usage: ${APP} [options]
+       ${APP} service <install|uninstall|status|start|stop|restart|url|logs>   run at system start (see README)
   --reconfigure   re-ask for the workspace folder (the API key is kept)
   --new-key       generate a new API key
   --show-key      print the API key in the startup banner
   --no-tunnel     run the server only
   --no-ui         do not start the web UI
   --no-open       start the web UI but do not open the window
+  --setup         first-time setup (workspace, API key, dev tunnel install + sign-in), then exit
+  --service       unattended mode for a system service: no prompts, no window, log to
+                  <config dir>/logs/service.log and write the public URL to <config dir>/tunnel-url.txt
   --verbose       show all dev tunnel output, not just errors and important lines
   -h, --help      this text
 
@@ -48,7 +53,31 @@ const verbose = args.has('--verbose');
 
 const stamp = () => new Date().toTimeString().slice(0, 8);
 const bus = new LogBus();
-const rawErr = console.error.bind(console);
+const consoleErr = console.error.bind(console);
+const serviceMode = args.has('--service');
+const LOG_DIR = path.join(configDir(), 'logs');
+const LOG_FILE = path.join(LOG_DIR, 'service.log');
+const URL_FILE = path.join(configDir(), 'tunnel-url.txt');
+if (serviceMode) {
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    if (fs.statSync(LOG_FILE, { throwIfNoEntry: false })?.size! > 5_000_000) fs.renameSync(LOG_FILE, `${LOG_FILE}.1`);
+  } catch {
+    /* logging to a file is best effort */
+  }
+}
+/** Writes to stderr and, in service mode, appends the same text to the log file. */
+const rawErr = (...a: unknown[]) => {
+  consoleErr(...a);
+  if (serviceMode) {
+    try {
+      fs.appendFileSync(LOG_FILE, `${new Date().toISOString().slice(0, 19).replace("T", " ")} ${a.map(String).join(' ')}
+`);
+    } catch {
+      /* ignore */
+    }
+  }
+};
 // Everything the server prints via console.error ("[copilot-mcp] ...") is mirrored into the web UI.
 console.error = (...a: unknown[]) => {
   const text = (a[0] === '[copilot-mcp]' ? a.slice(1) : a).map(String).join(' ');
@@ -145,6 +174,7 @@ async function installDevtunnel(): Promise<string> {
 
 function ensureLogin(dt: string) {
   if (run(dt, ['user', 'show']).status === 0) return;
+  if (serviceMode) fail(`Not signed in to dev tunnels. Run "${APP} --setup" once as this user, then start the service again.`);
   const headless = process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
   log(`Not signed in to dev tunnels - starting ${headless ? 'device-code' : 'browser'} login...`);
   const login = spawnSync(dt, ['user', 'login', ...(headless ? ['-d'] : [])], { stdio: 'inherit' });
@@ -214,34 +244,6 @@ const IMPORTANT = /https?:\/\/\S+|error|fail|denied|unauthori[sz]ed|expired|refu
 const startedAt = Date.now();
 const baseEnv = { ...process.env } as Record<string, string>; // real environment, before config files are applied
 let tunnelState: UiState['tunnel'] = 'disabled';
-let publicUrl: string | undefined;
-let child: ChildProcess | undefined;
-let stopping = false;
-let restartRequested = false;
-let retryTimer: NodeJS.Timeout | undefined;
-
-function hostTunnel(dt: string, id: string, getPort: () => number, onUrl: (url: string) => void, attempt = 0) {
-  setTunnel(attempt || restartRequested ? 'restarting' : 'starting');
-  const proc = spawn(dt, ['host', id], { windowsHide: true });
-  child = proc;
-  let started = Date.now();
-  const onData = (chunk: Buffer) => {
-    for (const raw of chunk.toString().split(/\r?\n/)) {
-      const line = raw.replace(/\x1b\[[0-9;]*m/g, '').trim();
-      if (!line) continue;
-      const url = /Connect via browser:\s*(https:\/\/\S+)/i.exec(line)?.[1]?.split(',')[0];
-      if (url && !url.includes(`-${getPort()}.`)) continue; // URL of a different port: not ours
-      if (url) {
-        started = Date.now();
-        setTunnel('running');
-        publicUrl = url;
-        onUrl(url);
-        continue;
-      }
-      const important = IMPORTANT.test(line) && !NOISE.test(line);
-      // The web UI gets every line (noise at "debug"); the console only the important ones.
-      bus.add('tunnel', important ? LogBus.guessLevel(line) : 'debug', line);
-      if (verbose || important) rawErr(`${stamp()} [tunnel] ${line}`);
 // Tunnel health: how long it has been up, how often it dropped, and when it last restarted.
 let tunnelSince = startedAt;
 let tunnelTracking: number | undefined;
@@ -272,6 +274,34 @@ function tunnelHealth(): Pick<UiState, 'tunnelUptimePct' | 'tunnelRestarts' | 't
     tunnelSince,
   };
 }
+let publicUrl: string | undefined;
+let child: ChildProcess | undefined;
+let stopping = false;
+let restartRequested = false;
+let retryTimer: NodeJS.Timeout | undefined;
+
+function hostTunnel(dt: string, id: string, getPort: () => number, onUrl: (url: string) => void, attempt = 0) {
+  setTunnel(attempt || restartRequested ? 'restarting' : 'starting');
+  const proc = spawn(dt, ['host', id], { windowsHide: true });
+  child = proc;
+  let started = Date.now();
+  const onData = (chunk: Buffer) => {
+    for (const raw of chunk.toString().split(/\r?\n/)) {
+      const line = raw.replace(/\x1b\[[0-9;]*m/g, '').trim();
+      if (!line) continue;
+      const url = /Connect via browser:\s*(https:\/\/\S+)/i.exec(line)?.[1]?.split(',')[0];
+      if (url && !url.includes(`-${getPort()}.`)) continue; // URL of a different port: not ours
+      if (url) {
+        started = Date.now();
+        setTunnel('running');
+        publicUrl = url;
+        onUrl(url);
+        continue;
+      }
+      const important = IMPORTANT.test(line) && !NOISE.test(line);
+      // The web UI gets every line (noise at "debug"); the console only the important ones.
+      bus.add('tunnel', important ? LogBus.guessLevel(line) : 'debug', line);
+      if (verbose || important) rawErr(`${stamp()} [tunnel] ${line}`);
     }
   };
   proc.stdout.on('data', onData);
@@ -312,10 +342,16 @@ function stopTunnel(graceMs = 5000): Promise<void> {
 // ---- main ----------------------------------------------------------------------------------
 
 async function main() {
+  if (process.argv[2] === 'service') {
+    const sea = (process as unknown as { getBuiltinModule?: (id: string) => any }).getBuiltinModule?.('node:sea');
+    await runServiceCommand(process.argv.slice(3), sea?.isSea?.() ? process.execPath : undefined);
+    return;
+  }
   if (args.has('-h') || args.has('--help')) {
     console.log(HELP);
     return;
   }
+  if (serviceMode) args.add('--no-open');
   const ensured = await ensureConfig();
   let saved = ensured.saved;
   const keyIsNew = ensured.keyIsNew;
@@ -337,8 +373,13 @@ async function main() {
     ensureLogin(dt);
     tunnelId = ensureTunnel(dt, port);
   }
+  if (args.has('--setup')) {
+    log(`Setup complete. Config: ${CONFIG_FILE}`);
+    process.exit(0);
+  }
 
   // The launcher owns signal handling so the tunnel is stopped before the process exits.
+  activity.persistTo(path.join(configDir(), 'history.json')); // hourly totals for the busiest-hours heatmap
   let stopServer = await startServer({ handleSignals: false });
   let uiServer: Awaited<ReturnType<typeof startUi>> | undefined;
   let shuttingDown = false;
@@ -354,6 +395,7 @@ async function main() {
     setTimeout(() => process.exit(1), 15_000).unref();
     await stopTunnel();
     await Promise.allSettled([stopServer(), uiServer?.close()]);
+    activity.flush();
     log('Stopped cleanly.');
     process.exit(0);
   };
@@ -372,7 +414,6 @@ async function main() {
     return {
       file: CONFIG_FILE,
       vars: keys.map((key) => {
-  activity.persistTo(path.join(configDir(), 'history.json')); // hourly totals for the busiest-hours heatmap
         const k = known.get(key);
         const secret = !!k?.secret;
         return {
@@ -388,7 +429,6 @@ async function main() {
   };
   const saveConfig = async (change: ConfigChange) => {
     const next = { ...saved };
-    activity.flush();
     for (const [k, v] of Object.entries(change.set ?? {})) {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) || /[\r\n]/.test(String(v))) return { ok: false, error: `Invalid variable: ${k}` };
       next[k] = String(v);
@@ -486,7 +526,16 @@ async function main() {
       // The CLI prints several lines per port; show the banner once per distinct URL.
       if (url === printed) return;
       printed = url;
-      bus.add('launcher', 'info', `Public MCP endpoint: ${url.replace(/\/$/, '')}/mcp`);
+      const endpoint = `${url.replace(/\/$/, '')}/mcp`;
+      bus.add('launcher', 'info', `Public MCP endpoint: ${endpoint}`);
+      if (serviceMode) {
+        log(`TUNNEL URL: ${endpoint}`);
+        try {
+          fs.writeFileSync(URL_FILE, `${endpoint}\n`);
+        } catch {
+          /* the log line above is enough */
+        }
+      }
       banner(url);
     });
   } else {

@@ -1,3 +1,4 @@
+import https from 'node:https';
 import { assertUrlAllowed } from './browserManager.js';
 import { AccessError } from './security.js';
 
@@ -17,6 +18,34 @@ export interface CurlOptions {
   timeoutMs: number;
   allowedHosts: string[];
   followRedirects: boolean;
+  /** Skip TLS verification. Honoured only for loopback hosts (dev certificates such as `dotnet dev-certs`). */
+  insecureTls?: boolean;
+}
+
+const isLoopback = (host: string) => ['localhost', '127.0.0.1', '[::1]', '::1'].includes(host.toLowerCase());
+
+/** fetch() without certificate verification, via node:https; used only for loopback dev servers. */
+function insecureFetch(url: URL, init: { method: string; headers: Headers; body?: string; signal: AbortSignal }): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      url,
+      { method: init.method, headers: Object.fromEntries(init.headers), rejectUnauthorized: false, signal: init.signal },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          const h = new Headers();
+          for (const [k, v] of Object.entries(res.headers)) for (const x of Array.isArray(v) ? v : v === undefined ? [] : [v]) h.append(k, x);
+          const status = res.statusCode ?? 0;
+          const nullBody = status === 204 || status === 205 || status === 304 || init.method === 'HEAD';
+          resolve(new Response(nullBody ? null : Buffer.concat(chunks), { status, statusText: res.statusMessage, headers: h }));
+        });
+        res.on('error', reject);
+      },
+    );
+    req.on('error', (e) => reject(Object.assign(new Error(e.message), { cause: e })));
+    req.end(init.body);
+  });
 }
 
 const clip = (s: string) => (s.length > MAX_BODY_CHARS ? `${s.slice(0, MAX_BODY_CHARS)}\n[truncated: ${s.length} chars]` : s);
@@ -46,11 +75,16 @@ export async function curl(opts: CurlOptions): Promise<string> {
   for (let hop = 0; ; hop++) {
     let res: Response;
     try {
-      res = await fetch(url, { method, headers, body, redirect: 'manual', signal });
+      res =
+        opts.insecureTls && url.protocol === 'https:' && isLoopback(url.hostname)
+          ? await insecureFetch(url, { method, headers, body, signal })
+          : await fetch(url, { method, headers, body, redirect: 'manual', signal });
     } catch (err) {
       if (signal.aborted) throw new Error(`Request timed out after ${Math.round(opts.timeoutMs / 1000)}s.`);
       const cause = (err as { cause?: { message?: string; code?: string } }).cause;
-      throw new Error(`Request failed: ${cause?.message ?? cause?.code ?? (err as Error).message}`);
+      const msg = cause?.message ?? cause?.code ?? (err as Error).message;
+      const hint = /self-signed|certificate|CERT_/i.test(msg) ? ' For a local dev server with a self-signed certificate, call curl again with insecureTls=true (works for localhost only), or use its http:// URL.' : '';
+      throw new Error(`Request failed: ${msg}.${hint}`);
     }
 
     const location = res.headers.get('location');

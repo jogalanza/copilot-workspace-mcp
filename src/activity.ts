@@ -18,6 +18,13 @@ const MAX_WORKSPACES = 20;
 const WS_SLOT_MS = 600_000; // per-workspace counts are kept in 10 minute slots
 const WS_SLOT_KEEP = 7 * 144; // ...for up to a week
 const TREND_POINTS = 24; // points in a workspace trend line
+const LOOP_MIN = 3; // identical consecutive calls before they count as a loop
+const MAX_LOOPS = 20;
+const MAX_REFUSED = 30;
+const MAX_FILES = 2000;
+/** Tools that are meant to be called again and again with the same arguments (polling), so repeats are not a loop. */
+const POLLING_TOOLS = new Set(['process_output', 'process_wait', 'list_processes', 'todo_read', 'current_workspace', 'list_workspaces', 'browser_screenshot', 'browser_logs']);
+const EDIT_TOOLS = new Set(['ws_write_file', 'ws_edit_file', 'notebook_edit']);
 const STARTED = Date.now(); // module load = process start; survives in-process server restarts
 
 /** Why a tool call failed: policy refusal, time limit, malformed request, rejected input, or a crash in the tool. */
@@ -111,7 +118,41 @@ export interface WorkspaceStat {
   /** TREND_POINTS call counts, oldest first, covering `since` to now. */
   trend: number[];
 }
+/** The same tool called with identical arguments several times in a row in one chat: usually the agent is stuck. */
+export interface LoopStat {
+  tool: string;
+  conversation: string;
+  count: number;
+  ts: number;
+  /** Whether the latest repeat failed. */
+  failing: boolean;
+}
+/** How often the agent hit the run_command allowlist and how often it used the userApproved override. */
+export interface ApprovalStats {
+  refused: number;
+  approved: number;
+  /** Refused commands, most frequent first: candidates for the allowlist. */
+  commands: { command: string; count: number }[];
+}
+/** Successful file changes made through the tools since the process started. */
+export interface FileStats {
+  edited: number;
+  deleted: number;
+  /** Distinct files edited or deleted. */
+  distinct: number;
+}
+/** A background process started by run_command that is still running. */
+export interface ProcessStat {
+  id: string;
+  command: string;
+  workspace: string;
+  startedAt: number;
+}
 export interface StatsSnapshot {
+  loops: LoopStat[];
+  approvals: ApprovalStats;
+  files: FileStats;
+  processes: ProcessStat[];
   buckets: Bucket[];
   tools: ToolStat[];
   hours: HourBucket[];
@@ -147,6 +188,14 @@ class ActivityTracker {
   private chats = new Map<string, ChatStat>();
   private blocked = new Map<string, BlockedStat>();
   private workspaces = new Map<string, { calls: number; errors: number; slots: Map<number, number> }>();
+  private lastSig = new Map<string, { sig: string; n: number }>();
+  private loops = new Map<string, LoopStat>();
+  private approvals = { refused: 0, approved: 0 };
+  private refused = new Map<string, number>();
+  private edited = 0;
+  private deleted = 0;
+  private touched = new Set<string>();
+  private processSource: (() => ProcessStat[]) | undefined;
   private statsListeners = new Set<(s: StatsSnapshot) => void>();
   private statsTimer: NodeJS.Timeout | undefined;
   private file: string | undefined;
@@ -270,12 +319,74 @@ class ActivityTracker {
       bl.error = (call.error ?? '').slice(0, 200);
       this.blocked.set(tool, bl);
     }
-    // Several calls can finish in a burst; push at most one update per second.
+    this.observe(call, ok);
+    this.scheduleStats();
+  }
+
+  /** Several calls can finish in a burst; push at most one stats update per second. */
+  private scheduleStats() {
     this.statsTimer ??= setTimeout(() => {
       this.statsTimer = undefined;
       const snap = this.statsSnapshot();
       for (const l of this.statsListeners) l(snap);
     }, 1000).unref();
+  }
+
+  /** Tell the UI that something outside a tool call changed (e.g. a background process exited). */
+  refreshStats() {
+    this.scheduleStats();
+  }
+
+  /** Where to read the running background processes from (set by the process manager). */
+  setProcessSource(source: () => ProcessStat[]) {
+    this.processSource = source;
+  }
+
+  /** Repeated identical calls, allowlist refusals and approvals, and file changes. */
+  private observe(call: LastCall, ok: boolean) {
+    if (call.method !== 'tools/call') return;
+    const tool = call.name;
+    const now = Date.now();
+
+    if (!POLLING_TOOLS.has(tool)) {
+      const chat = call.conversation ?? '';
+      const sig = `${tool}\0${call.args ?? ''}`;
+      const prev = this.lastSig.get(chat);
+      const n = prev && prev.sig === sig ? prev.n + 1 : 1;
+      this.lastSig.set(chat, { sig, n });
+      if (this.lastSig.size > MAX_CHATS) this.lastSig.delete(this.lastSig.keys().next().value!);
+      if (n >= LOOP_MIN) {
+        const key = `${chat}\0${sig}`;
+        this.loops.set(key, { tool, conversation: chat, count: n, ts: now, failing: !ok });
+        if (this.loops.size > MAX_LOOPS) this.loops.delete([...this.loops].sort(([, x], [, y]) => x.ts - y.ts)[0]![0]);
+      }
+    }
+
+    if (tool === 'run_command') {
+      if (!ok && /not on the allowlist/i.test(call.error ?? '')) {
+        this.approvals.refused++;
+        const cmd = /exact command: "([^"]+)"/.exec(call.error ?? '')?.[1];
+        if (cmd) {
+          this.refused.set(cmd, (this.refused.get(cmd) ?? 0) + 1);
+          if (this.refused.size > MAX_REFUSED) this.refused.delete(this.refused.keys().next().value!);
+        }
+      } else if (ok && /"userApproved":\s*true/.test(call.args ?? '')) {
+        this.approvals.approved++;
+      }
+    }
+
+    if (ok && (EDIT_TOOLS.has(tool) || tool === 'ws_delete_file')) {
+      if (tool === 'ws_delete_file') this.deleted++;
+      else this.edited++;
+      let file: unknown;
+      try {
+        const a = JSON.parse(call.args ?? '') as Record<string, unknown>;
+        file = a.filePath ?? a.path ?? a.file;
+      } catch {
+        /* arguments were truncated: counted, but not as a distinct file */
+      }
+      if (typeof file === 'string' && this.touched.size < MAX_FILES) this.touched.add(`${call.workspace ?? ''}\0${file}`);
+    }
   }
 
   statsSnapshot(): StatsSnapshot {
@@ -310,6 +421,13 @@ class ActivityTracker {
       })
       .sort((a, b) => b.calls - a.calls);
     return {
+      loops: [...this.loops.values()].sort((x, y) => y.ts - x.ts).slice(0, 6),
+      approvals: {
+        ...this.approvals,
+        commands: [...this.refused].map(([command, count]) => ({ command, count })).sort((x, y) => y.count - x.count).slice(0, 5),
+      },
+      files: { edited: this.edited, deleted: this.deleted, distinct: this.touched.size },
+      processes: this.processSource?.() ?? [],
       buckets: this.buckets.map((b) => ({ ...b, kinds: { ...b.kinds }, lat: [...b.lat] })),
       tools,
       hours,

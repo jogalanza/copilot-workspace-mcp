@@ -95,6 +95,7 @@ describe('MCP over HTTP: two chats, restart, M365-style calls', () => {
         'switch_workspace',
         'todo_read',
         'todo_write',
+        'ws_delete_file',
         'ws_edit_file',
         'ws_grep',
         'ws_read_file',

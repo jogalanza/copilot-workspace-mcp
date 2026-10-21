@@ -276,6 +276,7 @@ devtunnel host -p 8790 --allow-anonymous</code></pre>
 - Use paths relative to the workspace root. Call list_files first if unsure of a path.
 - Every tool reply starts with [workspace: &lt;alias&gt;]. If that is not the workspace the user expects, stop and ask.
 - Before ws_write_file, show the user the intended change and the target path, and wait for approval.</code></pre>
+  <div class="callout tip"><b>Full tool usage instructions</b>The block above covers files only. For precise instructions on editing, searching, running commands (including PowerShell scripts and .NET apps), testing APIs and pages, and git, add the blocks from <code>docs/agent-instructions.md</code>; they fit in the 8,000-character limit together with the workspace block.</div>
   <div class="callout tip"><b>Fallback when no conversation id is sent</b>If your channel does not provide a conversation id (for example Microsoft 365 Copilot declarative agents), use <code>docs/m365-agent-instructions.md</code> instead. It tells the agent to pass the <code>workspace</code> alias on every call.</div>
 </section>
 

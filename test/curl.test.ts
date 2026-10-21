@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
+import https from 'node:https';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { curl, type CurlMethod } from '../src/curlTool.js';
 
@@ -48,5 +53,34 @@ describe('curl tool', () => {
     assert.match(await call('/redirect'), /HTTP 302/);
     assert.match(await call('/redirect', 'GET', { followRedirects: true }), /"method": "GET"/);
     await assert.rejects(call('/evil', 'GET', { followRedirects: true }), /not allowed/);
+  });
+});
+
+describe('curl tool: self-signed https', () => {
+  let server: https.Server;
+  let url: string;
+  let dir: string;
+
+  before(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'curl-tls-'));
+    writeFileSync(join(dir, 'o.cnf'), '[req]\ndistinguished_name=dn\nprompt=no\n[dn]\nCN=localhost\n');
+    execFileSync('openssl', ['req', '-config', join(dir, 'o.cnf'), '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', 
+      '-keyout', join(dir, 'k.pem'), '-out', join(dir, 'c.pem')], { stdio: 'ignore', env: { ...process.env, MSYS_NO_PATHCONV: '1' } });
+    server = https.createServer({ key: readFileSync(join(dir, 'k.pem')), cert: readFileSync(join(dir, 'c.pem')) }, (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' }).end('secure ok');
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    url = `https://localhost:${(server.address() as AddressInfo).port}/`;
+  });
+  after(() => {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const opts = { url: '', method: 'GET' as const, timeoutMs: 5000, allowedHosts: ['localhost'], followRedirects: false };
+
+  it('fails with a hint by default and succeeds with insecureTls on localhost', async () => {
+    await assert.rejects(curl({ ...opts, url }), /insecureTls=true/);
+    assert.match(await curl({ ...opts, url, insecureTls: true }), /HTTP 200[\s\S]*secure ok/);
   });
 });

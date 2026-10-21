@@ -13,6 +13,7 @@
     "start": "node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "node --import tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "service": "node --import tsx src/serviceMain.ts",
     "new-key": "node scripts/new-api-key.mjs",
     "audit": "npm audit --omit=dev",
     "build:shell": "node scripts/build-shell.mjs",

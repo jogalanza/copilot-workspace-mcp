@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
+import { activity } from './activity.js';
 import type { AppConfig } from './config.js';
 import { AccessError } from './security.js';
 
@@ -57,7 +58,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export class ProcessManager {
   private procs = new Map<string, ManagedProcess>();
 
-  constructor(private config: AppConfig) {}
+  constructor(private config: AppConfig) {
+    // The web UI lists what is running, whichever chat started it.
+    activity.setProcessSource(() =>
+      [...this.procs.values()]
+        .filter((p) => p.exitCode === undefined && p.signal === undefined)
+        .map((p) => ({ id: p.id, command: p.command, workspace: p.alias, startedAt: p.startedAt })),
+    );
+  }
 
   /** Owner scoping keeps one chat from reading or killing another chat's processes. */
   list(owner: string) {
@@ -119,6 +127,7 @@ export class ProcessManager {
       child.on('close', (code, signal) => {
         proc.exitCode = code;
         proc.signal = signal;
+        activity.refreshStats();
         resolve();
       });
     });

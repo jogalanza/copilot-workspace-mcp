@@ -415,6 +415,43 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
       }),
   );
 
+  server.registerTool(
+    'ws_delete_file',
+    {
+      title: 'Delete file',
+      description:
+        'Delete a file in a registered code workspace. Permanent: there is no recycle bin, so confirm with the user ' +
+        'first unless they asked for the deletion. Pass "filePath" relative to the workspace root. An empty folder can ' +
+        'be deleted too; a folder that still has content needs recursive=true. The workspace root, .git and ' +
+        'node_modules cannot be deleted. A symbolic link is removed without touching what it points to.',
+      inputSchema: {
+        filePath: z.string().nullish().describe('Required. Path relative to the workspace root, or an absolute path inside a registered workspace.'),
+        ...filePathAliases,
+        recursive: z.boolean().nullish().describe('Also delete a folder that is not empty, with everything in it. Default false.'),
+        ...selectorShape,
+      },
+    },
+    async (args) =>
+      run('ws_delete_file', args, args.filePath ?? args.path ?? args.file ?? undefined, async (audit) => {
+        const routed = await workspaces.resolveForPath(ctx, args, pickFilePath(args));
+        const ws = routed.ws;
+        audit.alias = ws.alias;
+        const { target, relPath: rel } = await resolveUserPath(ws.root, routed.relPath);
+        if (!rel || rel === '.' || path.resolve(target) === path.resolve(ws.root)) throw new AccessError('The workspace root cannot be deleted.');
+        assertWritable(ws.root, target, [config.stateDbPath]);
+        const stat = await fsp.lstat(target).catch(() => undefined);
+        if (!stat) throw new AccessError(`Not found: ${rel} ${tag(ws)}`);
+        if (stat.isDirectory()) {
+          const count = (await fsp.readdir(target)).length;
+          if (count && !args.recursive) throw new AccessError(`${rel} is a folder with ${count} entries. Pass recursive=true to delete it and everything in it.`);
+          await fsp.rm(target, { recursive: true, force: false });
+          return `${tag(ws)} Deleted folder ${rel}${count ? ` (and its contents)` : ''}.`;
+        }
+        await fsp.unlink(target);
+        return `${tag(ws)} Deleted ${rel}.`;
+      }),
+  );
+
   /** Resolve an existing, writable text file for an in-place edit (ws_edit_file, notebook_edit). */
   async function editableFile(args: WorkspaceSelector & { filePath?: string | null; path?: string | null; file?: string | null }) {
     const routed = await workspaces.resolveForPath(ctx, args, pickFilePath(args));
@@ -1201,6 +1238,10 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
             .describe('Alternative to body: a JSON value that is serialized and sent with Content-Type application/json.'),
           followRedirects: z.boolean().nullish().describe('Follow redirects (each hop must be an allowed host). Default false.'),
           timeoutSeconds: z.number().int().positive().nullish().describe(`Time limit (cap ${config.curlTimeoutSeconds}).`),
+          insecureTls: z
+            .boolean()
+            .nullish()
+            .describe('Skip certificate verification for an https://localhost dev server with a self-signed certificate. Ignored for other hosts. Default false.'),
           ...selectorShape,
         },
       },
@@ -1224,6 +1265,7 @@ export function createMcpServer(deps: McpDeps, ctx: RequestContext): McpServer {
             timeoutMs: limit * 1000,
             allowedHosts: config.curlAllowedHosts,
             followRedirects: args.followRedirects ?? false,
+            insecureTls: args.insecureTls ?? false,
           });
         }),
     );

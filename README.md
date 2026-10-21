@@ -84,6 +84,29 @@ Set `OUT_DIR=some/folder` to write somewhere other than `release/`.
 Cross-built Linux and Windows binaries run as they are. Cross-built **macOS** binaries cannot be code-signed off a Mac, so on the Mac run
 once `codesign --sign - ./copilot-workspace-mcp` (the release archives avoid this because CI builds them on macOS runners).
 
+### Run it as a service (starts with the machine)
+
+```
+copilot-workspace-mcp service install      # first-time setup, then register + start the service
+copilot-workspace-mcp service url          # print the public tunnel address
+copilot-workspace-mcp service logs [-f]    # show (or follow) the log
+copilot-workspace-mcp service status | start | stop | restart | uninstall
+```
+
+From a clone use `npm run service -- install --exe release/copilot-workspace-mcp-<platform>-<arch>`.
+`install` runs the interactive setup once (workspace folder, API key, dev tunnel sign-in), then registers the program with `--service`:
+no prompts, no window. The web UI stays at <http://localhost:8791> in any browser.
+
+| System | Mechanism | Starts |
+|---|---|---|
+| Windows | Scheduled Task `CopilotWorkspaceMCP` | when you log on; restarted if it stops |
+| Linux | systemd user service (`~/.config/systemd/user`) | at boot (`loginctl enable-linger`, asks for sudo once) |
+| macOS | LaunchAgent `com.copilot-workspace-mcp` | when you log in; `install --boot` makes a LaunchDaemon that starts at boot (sudo) |
+
+It runs as **your user**, not SYSTEM/root, because the dev tunnel sign-in is stored in your account. The tunnel address is written to the
+log (search for `TUNNEL URL:`) and to `tunnel-url.txt`, both in the config folder (Windows `%APPDATA%copilot-workspace-mcp`, others `~/.config/copilot-workspace-mcp`):
+`logs/service.log` (5 MB, then rotated to `.1`) and `tunnel-url.txt`. Move the executable before installing, not after: the service points at its path.
+
 **Releases.** Pushing a tag such as `v1.4.0` runs `.github/workflows/release.yml`: it builds on Windows, Linux (x64 and arm64) and macOS
 (Intel and Apple silicon) runners, packages the archives with `scripts/package-release.mjs`, and attaches them and `SHA256SUMS.txt` to a GitHub release.
 The same workflow can be started by hand (*Actions > Release executables*) to get the archives as a build artifact without a release.
@@ -112,6 +135,7 @@ Every file tool reply starts with `[workspace: <alias>]`.
 |---|---|
 | Copilot Studio / Teams | Import `docs/copilot-studio-connector.yaml`, add input `conversation-id` = `System.Conversation.Id`, API key header `api-key`. |
 | M365 Copilot declarative agent | Add `docs/m365-agent-instructions.md` to the agent instructions; configure API key auth. |
+| Any agent | Add the tool-usage blocks from `docs/agent-instructions.md` (editing, search, commands, PowerShell, .NET, API/browser testing, git). |
 
 ## MCP tools
 
@@ -124,6 +148,7 @@ Every file tool reply starts with `[workspace: <alias>]`.
 | `list_files` | Glob within the workspace (skips `node_modules`, `.git`) |
 | `ws_read_file` | Read a text file (size-capped) |
 | `ws_write_file` | Atomic create/overwrite; blocked in `.git`, `node_modules` |
+| `ws_delete_file` | Delete a file or an empty folder; a folder with content needs `recursive=true`. Never the workspace root, `.git` or `node_modules` |
 | `ws_edit_file` | Exact-string replacement (one edit or an atomic list of `edits`); `oldString` must be unique unless `replaceAll` |
 | `ws_grep` | Regex search of file contents (`content`, `files` or `count` output, context lines, `glob` and sub-folder filters) |
 | `notebook_edit` | Replace, insert or delete one cell of a Jupyter `.ipynb` |
