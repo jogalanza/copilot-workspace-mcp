@@ -201,7 +201,7 @@ function Heatmap({ hours, now }) {
                   key={c.t}
                   className="aspect-square rounded-[3px]"
                   title={`${DAY[day.getDay()]} ${String(c.h).padStart(2, '0')}:00 · ${c.calls} ${c.calls === 1 ? 'call' : 'calls'}${c.errors ? ', ' + c.errors + ' failed' : ''}`}
-                  style={{ background: c.calls ? `rgb(42 167 255 / ${0.18 + 0.82 * (c.calls / max)})` : 'rgb(255 255 255 / ' + (c.future ? 0.02 : 0.06) + ')' }}
+                  style={{ background: c.calls ? `rgb(42 167 255 / ${0.18 + 0.82 * (c.calls / max)})` : 'color-mix(in srgb, var(--color-white) ' + (c.future ? 2 : 6) + '%, transparent)' }}
                 />
               ))}
             </div>
@@ -248,13 +248,64 @@ function pctClass(p) {
   return p === undefined || p >= 99 ? '' : p >= 90 ? 'text-warn' : 'text-stop';
 }
 
-export function UsageTab({ stats, state, now }) {
-  const chats = stats.chats || [];
-  const top = chats.length ? Math.max(1, ...chats.map((c) => c.calls)) : 1;
-  const stateLabel = state ? state.tunnel : null;
+export function TunnelHealth({ state, now }) {
   const since = state?.tunnelSince ? upTime((now - state.tunnelSince) / 1000) : null;
   return (
+    <Section title="Tunnel health" note={state ? state.tunnel + (since ? ' for ' + since : '') : ''}>
+      {state && state.tunnel !== 'disabled' ? (
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <Tile label="Uptime" value={state.tunnelUptimePct === undefined ? '-' : (state.tunnelUptimePct >= 99.95 ? '100' : state.tunnelUptimePct.toFixed(1)) + '%'} valueClass={pctClass(state.tunnelUptimePct)} sub="since start" />
+          <Tile label="Restarts" value={state.tunnelRestarts ?? 0} valueClass={state.tunnelRestarts ? 'text-warn' : ''} sub="this session" />
+          <Tile label="Last restart" value={state.tunnelLastRestart ? ago(state.tunnelLastRestart, now).replace(' ago', '') : 'none'} sub={state.tunnelLastRestart ? 'ago' : 'so far'} />
+        </div>
+      ) : <div className="mt-2 text-sm text-mute">{state ? 'The tunnel is off.' : 'Connecting...'}</div>}
+    </Section>
+  );
+}
+
+export function UsageTab({ stats, now }) {
+  const chats = stats.chats || [];
+  const top = chats.length ? Math.max(1, ...chats.map((c) => c.calls)) : 1;
+  const active = chats.filter((c) => now - c.lastTs < 5 * 60000).length;
+  const files = stats.files || { edited: 0, deleted: 0, distinct: 0 };
+  const approvals = stats.approvals || { refused: 0, approved: 0, commands: [] };
+  const loops = stats.loops || [];
+  const processes = stats.processes || [];
+  return (
     <>
+      <div className="grid shrink-0 grid-cols-3 gap-2">
+        <Tile label="Active chats" value={active} sub="last 5 min" />
+        <Tile label="Files changed" value={files.edited + files.deleted} sub={files.distinct + ' distinct' + (files.deleted ? ' · ' + files.deleted + ' deleted' : '')} />
+        <Tile label="Approvals" value={approvals.approved} valueClass={approvals.refused ? 'text-warn' : ''} sub={approvals.refused + ' refused'} />
+      </div>
+      <Section title="Running processes" note="started by run_command">
+        <ToolList
+          items={processes.map((p) => ({ ...p, name: p.id }))}
+          empty="Nothing is running."
+          row={(p) => ({ label: p.command, frac: 1, value: upTime((now - p.startedAt) / 1000), sub: p.workspace + ' · ' + p.id + ' · stop it with process_stop' })}
+        />
+      </Section>
+      <Section title="Retry loops" note="same call 3+ times in a row">
+        <ToolList
+          items={loops.map((l) => ({ ...l, name: l.tool + l.conversation }))}
+          empty="No repeated calls. Good."
+          row={(l) => ({
+            label: l.tool,
+            frac: Math.min(1, l.count / 10),
+            barClass: 'bg-warn/30',
+            value: l.count + '×',
+            valueClass: l.failing ? 'text-stop' : 'text-warn',
+            sub: (l.conversation ? '…' + l.conversation.slice(-10) : 'No chat id') + ' · ' + ago(l.ts, now) + (l.failing ? ' · still failing' : ''),
+          })}
+        />
+      </Section>
+      <Section title="Refused commands" note="not on the run_command allowlist">
+        <ToolList
+          items={approvals.commands.map((c) => ({ ...c, name: c.command }))}
+          empty="No command was refused."
+          row={(c) => ({ label: c.command, frac: c.count / Math.max(1, approvals.commands[0].count), value: c.count + '×', sub: 'add it to RUN_ALLOWED_COMMANDS if it is safe' })}
+        />
+      </Section>
       <Section title="Chats and clients" note="this session">
         <ToolList
           items={chats.map((c) => ({ ...c, name: c.id || '(no chat id)' }))}
@@ -272,15 +323,6 @@ export function UsageTab({ stats, state, now }) {
       </Section>
       <Section title="Busiest hours" note="last 7 days">
         <Heatmap hours={stats.hours || []} now={now} />
-      </Section>
-      <Section title="Tunnel health" note={stateLabel ? stateLabel + (since ? ' for ' + since : '') : ''}>
-        {state && state.tunnel !== 'disabled' ? (
-          <div className="mt-2 grid grid-cols-3 gap-2">
-            <Tile label="Uptime" value={state.tunnelUptimePct === undefined ? '-' : (state.tunnelUptimePct >= 99.95 ? '100' : state.tunnelUptimePct.toFixed(1)) + '%'} valueClass={pctClass(state.tunnelUptimePct)} sub="since start" />
-            <Tile label="Restarts" value={state.tunnelRestarts ?? 0} valueClass={state.tunnelRestarts ? 'text-warn' : ''} sub="this session" />
-            <Tile label="Last restart" value={state.tunnelLastRestart ? ago(state.tunnelLastRestart, now).replace(' ago', '') : 'none'} sub={state.tunnelLastRestart ? 'ago' : 'so far'} />
-          </div>
-        ) : <div className="mt-2 text-sm text-mute">{state ? 'The tunnel is off.' : 'Connecting...'}</div>}
       </Section>
     </>
   );

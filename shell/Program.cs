@@ -52,8 +52,13 @@ namespace CopilotShell
             HTTOPRIGHT = 14, HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
         const int WS_THICKFRAME = 0x00040000, WS_MINIMIZEBOX = 0x00020000, WS_MAXIMIZEBOX = 0x00010000;
         const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20, DWMWA_BORDER_COLOR = 34;
-        static readonly Color Bg = Color.FromArgb(10, 10, 11);          // --color-ink
-        static readonly Color Border = Color.Black;
+        // The strip around the page and the window outline follow the page's theme (the page reports it with "theme:light" / "theme:dark").
+        static readonly Color DarkBg = Color.FromArgb(10, 10, 11);        // --color-ink (dark)
+        static readonly Color LightBg = Color.FromArgb(236, 239, 244);    // --color-ink (light)
+        static readonly Color DarkBorder = Color.Black;
+        static readonly Color LightBorder = Color.FromArgb(200, 206, 216);
+        Color Bg = DarkBg;
+        Color Border = DarkBorder;
         const int Grip = 6;        // edge width that resizes
         const int CornerGrip = 14;
 
@@ -138,6 +143,12 @@ namespace CopilotShell
                 case "max":
                     WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
                     break;
+                case "theme:light":
+                    ApplyTheme(true);
+                    break;
+                case "theme:dark":
+                    ApplyTheme(false);
+                    break;
             }
         }
 
@@ -171,11 +182,27 @@ namespace CopilotShell
             var m = new Margins { Left = 1, Right = 1, Top = 1, Bottom = 1 }; // gives the borderless window its drop shadow
             DwmExtendFrameIntoClientArea(Handle, ref m);
 
-            // Windows 11: a black window outline instead of the system grey. Older Windows ignores these attributes.
+            ApplyDwmColors();
+        }
+
+        /// <summary>Windows 11: window outline colour and dark/light frame. Older Windows ignores these attributes.</summary>
+        void ApplyDwmColors()
+        {
+            if (!IsHandleCreated) return;
             int border = Border.R | (Border.G << 8) | (Border.B << 16); // COLORREF is 0x00BBGGRR
             DwmSetWindowAttribute(Handle, DWMWA_BORDER_COLOR, ref border, sizeof(int));
-            int dark = 1;
+            int dark = Bg == DarkBg ? 1 : 0;
             DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+        }
+
+        void ApplyTheme(bool light)
+        {
+            Bg = light ? LightBg : DarkBg;
+            Border = light ? LightBorder : DarkBorder;
+            BackColor = Bg;
+            web.DefaultBackgroundColor = Bg;
+            ApplyDwmColors();
+            Invalidate(true);
         }
 
         protected override void OnResize(EventArgs e)

@@ -28,11 +28,11 @@ export default function StatusBar({ state, offline, shell }) {
         <svg viewBox="0 0 24 24" className={`size-5 motion-reduce:animate-none ${tone}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1" />
         </svg>
-        <span role="tooltip" className="pointer-events-none absolute left-0 top-full z-30 mt-2 whitespace-nowrap rounded-lg bg-[#1a1a1d] px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-xl ring-1 ring-white/10 transition-opacity delay-100 group-hover:opacity-100 group-focus:opacity-100">{label}</span>
+        <span role="tooltip" className="pointer-events-none absolute left-0 top-full z-30 mt-2 whitespace-nowrap rounded-lg bg-surface px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-xl ring-1 ring-white/10 transition-opacity delay-100 group-hover:opacity-100 group-focus:opacity-100">{label}</span>
       </span>
       <span className="text-mute">{state ? 'v' + state.version : ''}</span>
       <span className="ml-auto flex items-center gap-5 text-mute">
-        <span className={state?.errors ? 'text-red-300' : ''}>{state ? (state.errors ? state.errors + (state.errors === 1 ? ' error' : ' errors') : 'No errors') : ''}</span>
+        <span className={state?.errors ? 'text-red-300 [:root[data-theme=light]_&]:text-stop' : ''}>{state ? (state.errors ? state.errors + (state.errors === 1 ? ' error' : ' errors') : 'No errors') : ''}</span>
         <span>{state ? 'Up ' + upTime((now - state.startedAt) / 1000) : ''}</span>
         <span className="hidden sm:inline">{d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</span>
         <span className="font-medium text-white">{d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>

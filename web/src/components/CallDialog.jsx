@@ -3,7 +3,7 @@ import { BTN, ago, useNow } from '../util.js';
 
 const STATUS = {
   ok: 'bg-go/20 text-go',
-  error: 'bg-stop/20 text-red-300',
+  error: 'bg-stop/20 text-red-300 [:root[data-theme=light]_&]:text-stop',
   pending: 'bg-route/20 text-route',
 };
 const STATUS_LABEL = { pending: 'Running', ok: 'Succeeded', error: 'Failed' };
@@ -24,7 +24,7 @@ export default function CallDialog({ open, onClose, call }) {
   const now = useNow(1000);
   const tool = call?.method === 'tools/call';
   return (
-    <Dialog open={open} onClose={onClose} className="m-auto w-[min(640px,94vw)] rounded-[28px] border border-white/10 bg-[#1a1a1d] p-0 text-white shadow-2xl backdrop:bg-black/70">
+    <Dialog open={open} onClose={onClose} className="m-auto w-[min(640px,94vw)] rounded-[28px] border border-white/10 bg-surface p-0 text-white shadow-2xl backdrop:bg-black/70">
       <div className="flex max-h-[85vh] flex-col">
         <div className="flex items-center gap-3 px-5 py-4">
           <h2 className="text-lg font-medium">Latest MCP call</h2>

@@ -45,3 +45,14 @@ export function useNow(ms) {
   }, [ms]);
   return now;
 }
+
+const MINUTE = 60000;
+/** The last `size` minute buckets (default 30), with empty minutes filled in. */
+export function windowBuckets(buckets, now, size = 30) {
+  const cur = Math.floor(now / MINUTE) * MINUTE;
+  const map = new Map(buckets.map((b) => [b.t, b]));
+  return Array.from({ length: size }, (_, i) => {
+    const t = cur - (size - 1 - i) * MINUTE;
+    return map.get(t) || { t, calls: 0, errors: 0, ms: 0, timed: 0, inB: 0, outB: 0, kinds: {}, lat: [] };
+  });
+}

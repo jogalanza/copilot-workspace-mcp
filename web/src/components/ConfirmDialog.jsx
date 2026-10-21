@@ -9,7 +9,7 @@ export default function ConfirmDialog({ open, title, text, yesLabel = 'OK', onYe
     if (open) noRef.current?.focus();
   }, [open]);
   return (
-    <Dialog open={open} onClose={onCancel} backdropClose className="m-auto w-[min(420px,94vw)] rounded-[28px] border border-white/10 bg-[#1a1a1d] p-0 text-white shadow-2xl backdrop:bg-black/70">
+    <Dialog open={open} onClose={onCancel} backdropClose className="m-auto w-[min(420px,94vw)] rounded-[28px] border border-white/10 bg-surface p-0 text-white shadow-2xl backdrop:bg-black/70">
       <div className="px-6 pb-5 pt-6">
         <h2 className="text-lg font-medium">{title}</h2>
         <p className="mt-2 text-sm text-mute">{text}</p>

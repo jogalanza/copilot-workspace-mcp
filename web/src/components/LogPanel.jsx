@@ -2,12 +2,12 @@ import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { fmt } from '../util.js';
 
 const LEVEL = {
-  error: 'border-stop bg-stop/10 text-red-300',
-  warn: 'border-warn bg-warn/10 text-amber-200',
-  info: 'border-transparent text-neutral-200',
+  error: 'border-stop bg-stop/10 text-red-300 [:root[data-theme=light]_&]:text-stop',
+  warn: 'border-warn bg-warn/10 text-amber-200 [:root[data-theme=light]_&]:text-warn',
+  info: 'border-transparent text-white/85',
   debug: 'border-transparent text-mute',
 };
-const SRC = { launcher: 'text-violet-400', server: 'text-route', tunnel: 'text-go' };
+const SRC = { launcher: 'text-[var(--chart-violet)]', server: 'text-route', tunnel: 'text-go' };
 
 const CHIPS = [
   { value: 'error', label: 'Errors', on: 'peer-checked:bg-stop/20 peer-checked:text-stop' },

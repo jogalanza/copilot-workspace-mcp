@@ -3,7 +3,7 @@ import Dialog from './Dialog.jsx';
 import { BTN, INPUT } from '../util.js';
 
 const DEFAULT_MSG = { text: 'Saving restarts the MCP server (a few seconds of downtime).', kind: '' };
-const MSG_COLOR = { err: 'text-red-300', ok: 'text-go', '': 'text-mute' };
+const MSG_COLOR = { err: 'text-red-300 [:root[data-theme=light]_&]:text-stop', ok: 'text-go', '': 'text-mute' };
 const newToken = () => {
   const b = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -108,7 +108,7 @@ export default function SettingsDialog({ open, onClose }) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} className="m-auto h-full max-h-[100dvh] w-full max-w-none overflow-hidden rounded-none border border-white/10 bg-[#1a1a1d] p-0 text-white shadow-2xl backdrop:bg-black/70 sm:h-auto sm:max-h-[88vh] sm:w-[min(860px,94vw)] sm:rounded-[28px]">
+    <Dialog open={open} onClose={onClose} className="m-auto h-full max-h-[100dvh] w-full max-w-none overflow-hidden rounded-none border border-white/10 bg-surface p-0 text-white shadow-2xl backdrop:bg-black/70 sm:h-auto sm:max-h-[88vh] sm:w-[min(860px,94vw)] sm:rounded-[28px]">
       <div className="flex h-full max-h-[inherit] flex-col sm:max-h-[88vh]">
         <div className="flex items-center gap-3 px-5 py-4">
           <h2 className="text-lg font-medium">Settings</h2>

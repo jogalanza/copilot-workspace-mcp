@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import IconRail from './components/IconRail.jsx';
 import StatusBar from './components/StatusBar.jsx';
 import Hero from './components/Hero.jsx';
+import KpiStack from './components/KpiStack.jsx';
 import Endpoints from './components/Endpoints.jsx';
 import LogPanel from './components/LogPanel.jsx';
 import ToolActivity from './components/ToolActivity.jsx';
@@ -24,6 +25,7 @@ export default function App() {
   const [ripples, setRipples] = useState([]);
   const [dialog, setDialog] = useState(null); // 'settings' | 'call' | 'stop' | null
   const [stopped, setStopped] = useState(false);
+  const [theme, setTheme] = useState(() => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'));
   const es = useRef(null);
   const lastCallId = useRef(0);
   const keySeq = useRef(0);
@@ -56,6 +58,16 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  const toggleTheme = () => {
+    const next = theme === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    if (next === 'light') document.documentElement.dataset.theme = 'light';
+    else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem('theme', next); } catch { /* private mode: the choice just is not remembered */ }
+  };
+  // Tell the native window which theme is showing so its edge matches.
+  useEffect(() => { shell?.('theme:' + theme); }, [theme]);
+
   const close = useCallback(() => setDialog(null), []);
   const stop = () => {
     setDialog(null);
@@ -80,6 +92,8 @@ export default function App() {
           restartDisabled={state?.tunnel === 'disabled'}
           onSave={saveLog}
           onStop={() => setDialog('stop')}
+          theme={theme}
+          onTheme={toggleTheme}
         />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
           <StatusBar state={state && { ...state }} offline={offline} shell={shell} />
@@ -90,6 +104,7 @@ export default function App() {
               onRippleDone={(id) => setRipples((r) => r.filter((x) => x.id !== id))}
               onOpen={() => setDialog('call')}
             />
+            <KpiStack buckets={stats.buckets} />
             <Endpoints state={state} />
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
